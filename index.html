@@ -1,417 +1,642 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>EPUB Reader</title>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://code.jquery.com https://unpkg.com https://d3js.org https://threejs.org https://cdn.plot.ly https://stackpath.bootstrapcdn.com https://maps.googleapis.com https://cdn.tailwindcss.com https://ajax.googleapis.com https://kit.fontawesome.com https://cdn.datatables.net https://maxcdn.bootstrapcdn.com https://code.highcharts.com; frame-src 'self'; child-src 'self'; manifest-src 'self'; worker-src 'self'; upgrade-insecure-requests; block-all-mixed-content;">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HTMLReader</title>
+  <!-- Using File System Access API for library persistence and fallback File API -->
+  <script src="https://cdn.jsdelivr.net/npm/jszip/dist/jszip.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/epubjs/dist/epub.min.js"></script>
   <style>
     body {
       font-family: Arial, sans-serif;
-      padding: 20px;
-      max-width: 800px;
-      margin: auto;
-      background: #f4f4f4;
-    }
-    #content-container {
-      position: relative;
-      border: 1px solid #ccc;
-      background: white;
-      height: 500px;
-      margin-top: 20px;
-      overflow-y: auto; /* Enable vertical scrolling */
-    }
-    #content {
-      padding: 20px;
-      /* Removed fixed height and column layout for vertical scrolling */
-      transition: transform 0.3s ease-in-out;
-    }
-    /* Ensure images resize properly */
-    img {
-      max-width: 100%;
-      height: auto;
-    }
-    .page-controls {
-      position: fixed;
-      bottom: 20px;
-      right: 20px;
+      margin: 0;
+      padding: 0;
       display: flex;
-      gap: 10px;
-      background: rgba(255, 255, 255, 0.9);
-      padding: 10px;
-      border-radius: 4px;
-      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-      z-index: 1000;
+      flex-direction: column;
+      height: 100vh;
+      background-color: #f5f5f5;
+    }
+    header {
+      background: linear-gradient(90deg, #2196F3, #21CBF3);
+      color: white;
+      padding: 0.8rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .title {
+      font-size: 1.5rem;
+      font-weight: bold;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .book-title {
+      font-size: 1rem;
+      max-width: 60%;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .controls {
+      display: flex;
+      gap: 0.5rem;
+      align-items: center;
     }
     button {
-      margin: 5px;
-      padding: 10px;
-      cursor: pointer;
-      background: #4caf50;
+      background-color: #2196F3;
       color: white;
       border: none;
+      padding: 0.5rem 1rem;
       border-radius: 4px;
+      cursor: pointer;
+      font-size: 0.9rem;
+    }
+    button:hover {
+      background-color: #1976D2;
     }
     button:disabled {
-      background: #cccccc;
+      background-color: #718096;
       cursor: not-allowed;
     }
-    select {
-      padding: 5px;
-      margin: 0 10px;
+    .file-input {
+      display: none;
     }
-    .error {
-      color: red;
-      margin: 10px 0;
+    main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
     }
-    #page-info {
-      position: fixed;
-      bottom: 20px;
-      left: 20px;
-      background: rgba(255, 255, 255, 0.9);
-      padding: 10px;
+    #viewer {
+      flex: 1;
+      overflow: auto;
+      background-color: white;
+      padding: 2rem;
+      box-shadow: inset 0 0 10px rgba(0,0,0,0.1);
+    }
+    footer {
+      background-color: #e2e8f0;
+      padding: 0.8rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .page-info {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    input[type="number"] {
+      width: 4rem;
+      padding: 0.3rem;
+      border: 1px solid #cbd5e0;
       border-radius: 4px;
-      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-      z-index: 1000;
+    }
+    /* TOC container remains similar */
+    .toc-container {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 300px;
+      height: 100%;
+      background-color: white;
+      box-shadow: 2px 0 5px rgba(0,0,0,0.1);
+      transform: translateX(-100%);
+      transition: transform 0.3s ease;
+      z-index: 10;
+      display: flex;
+      flex-direction: column;
+    }
+    .toc-container.open {
+      transform: translateX(0);
+    }
+    .toc-header {
+      background-color: #2196F3;
+      color: white;
+      padding: 1rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .toc-content {
+      flex: 1;
+      overflow-y: auto;
+      padding: 1rem;
+    }
+    .toc-item {
+      padding: 0.5rem;
+      cursor: pointer;
+      border-bottom: 1px solid #e2e8f0;
+    }
+    .toc-item:hover {
+      background-color: #f7fafc;
+    }
+    /* Library Popup (almost full screen) */
+    .library-container {
+      position: fixed;
+      top: 5%;
+      left: 5%;
+      width: 90%;
+      height: 90%;
+      background-color: white;
+      box-shadow: 0 0 10px rgba(0,0,0,0.5);
+      z-index: 20;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      /* Make sure it's hidden by default: */
+      transform: translateY(-120%);
+      transition: transform 0.3s ease;
+    }
+    .library-container.open {
+      transform: translateY(0);
+    }
+    .library-header {
+      background-color: #2196F3;
+      color: white;
+      padding: 1rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .library-content {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+      gap: 1rem;
+      padding: 1rem;
+      flex: 1;
+      overflow-y: auto;
+    }
+    .library-item {
+      border: 1px solid #ccc;
+      padding: 0.5rem;
+      text-align: center;
+      cursor: pointer;
+      transition: box-shadow 0.2s;
+    }
+    .library-item:hover {
+      box-shadow: 0 0 8px rgba(0,0,0,0.3);
+    }
+    .library-cover {
+      width: 100%;
+      height: 200px;
+      object-fit: cover;
+      margin-bottom: 0.5rem;
+      background: #eee;
+    }
+    .library-title {
+      font-size: 0.9rem;
+      font-weight: bold;
+    }
+    .overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background-color: rgba(0,0,0,0.5);
+      z-index: 15;
+      display: none;
+    }
+    .overlay.open {
+      display: block;
+    }
+    .message {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background-color: white;
+      padding: 2rem;
+      border-radius: 8px;
+      box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+      z-index: 25;
+      display: none;
+      text-align: center;
+    }
+    .message.show {
+      display: block;
+    }
+    @media (max-width: 768px) {
+      .title {
+        font-size: 1.2rem;
+      }
+      button {
+        padding: 0.4rem 0.8rem;
+        font-size: 0.8rem;
+      }
+      .toc-container {
+        width: 80%;
+      }
+      .library-container {
+        width: 95%;
+        height: 95%;
+        top: 2.5%;
+        left: 2.5%;
+      }
     }
   </style>
 </head>
 <body>
-  <h2>📖 EPUB Reader</h2>
-  <input type="file" id="epubFile" accept=".epub" />
-  <button onclick="loadEPUB()">Open EPUB</button>
-  <div id="error" class="error"></div>
-  <br /><br />
-
-  <button id="prevButton" onclick="prevChapter()" disabled>⬅ Previous</button>
-  <select id="chapterList" onchange="loadChapter()" disabled></select>
-  <button id="nextButton" onclick="nextChapter()" disabled>Next ➡</button>
-
-  <div id="content-container">
-    <div id="content"></div>
+  <header>
+    <div class="title">
+      <span>HTMLReader</span>
+      <span class="book-title" id="book-title"></span>
+    </div>
+    <div class="controls">
+      <button id="toc-button" disabled>Table of Contents</button>
+      <button id="open-button">Open EPUB</button>
+      <button id="library-button">Library</button>
+      <input type="file" id="file-input" class="file-input" accept=".epub">
+      <!-- Fallback multiple file input for library import -->
+      <input type="file" id="library-input" class="file-input" accept=".epub" multiple>
+    </div>
+  </header>
+  <main>
+    <div id="viewer"></div>
+  </main>
+  <footer>
+    <button id="prev-button" disabled>⬅ Previous</button>
+    <div class="page-info">
+      <span>Page</span>
+      <input type="number" id="current-page" min="1" value="1">
+      <span>of</span>
+      <span id="total-pages">1</span>
+    </div>
+    <button id="next-button" disabled>Next ➡</button>
+  </footer>
+  <!-- TOC Container -->
+  <div class="toc-container" id="toc-container">
+    <div class="toc-header">
+      <h3>Table of Contents</h3>
+      <button id="close-toc">Close</button>
+    </div>
+    <div class="toc-content" id="toc-content"></div>
   </div>
-  <div id="page-info">
-    Page <span id="current-page">1</span> of <span id="total-pages">1</span>
+  <!-- Library Popup (hidden by default) -->
+  <div class="library-container" id="library-container">
+    <div class="library-header">
+      <h3>Library</h3>
+      <button id="close-library">Close</button>
+    </div>
+    <div class="library-content" id="library-content"></div>
   </div>
-  <div class="page-controls">
-    <button onclick="prevPage()" id="prevPageBtn">◀ Previous</button>
-    <button onclick="nextPage()" id="nextPageBtn">Next ▶</button>
+  <div class="overlay" id="overlay"></div>
+  <div class="message" id="loading-message">
+    <h3>Loading EPUB...</h3>
+    <p>Please wait while your book is being processed.</p>
   </div>
-
+  <div class="message" id="error-message">
+    <h3>Error</h3>
+    <p id="error-text">There was an error processing your EPUB file.</p>
+    <button id="close-error">Close</button>
+  </div>
   <script>
-    let bookData = null;
-    let currentChapter = 0;
-    let currentPage = 1;
-    let totalPages = 1;
-
-    function showError(message) {
-      document.getElementById("error").textContent = message;
-    }
-
-    function clearError() {
-      document.getElementById("error").textContent = "";
-    }
-
-    async function loadEPUB() {
-      try {
-        clearError();
-        const file = document.getElementById("epubFile").files[0];
-        if (!file) {
-          throw new Error("Please select an EPUB file");
-        }
-
-        const data = await file.arrayBuffer();
-        const zip = new JSZip();
-        const epubData = await zip.loadAsync(data);
-        await parseEPUB(epubData);
-      } catch (error) {
-        showError(`Error loading EPUB: ${error.message}`);
-        console.error(error);
-      }
-    }
-
-    async function parseEPUB(epubData) {
-      try {
-        const containerFile = epubData.file("META-INF/container.xml");
-        if (!containerFile) {
-          throw new Error("Invalid EPUB: Missing container.xml");
-        }
-
-        const containerXML = await containerFile.async("text");
-        const parser = new DOMParser();
-        const xmlDoc = parser.parseFromString(containerXML, "text/xml");
-        const rootFileElement = xmlDoc.getElementsByTagName("rootfile")[0];
-
-        if (!rootFileElement) {
-          throw new Error("Invalid EPUB: Missing rootfile in container.xml");
-        }
-
-        const rootFilePath = rootFileElement.getAttribute("full-path");
-        const contentFile = epubData.file(rootFilePath);
-
-        if (!contentFile) {
-          throw new Error("Invalid EPUB: Missing content file");
-        }
-
-        const contentXML = await contentFile.async("text");
-        const contentDoc = parser.parseFromString(contentXML, "text/xml");
-        const spine = contentDoc.getElementsByTagName("spine")[0];
-        const manifest = contentDoc.getElementsByTagName("manifest")[0];
-
-        if (!spine || !manifest) {
-          throw new Error("Invalid EPUB: Missing spine or manifest");
-        }
-
-        bookData = {
-          chapters: [],
-          files: epubData,
-          rootPath: rootFilePath.replace(/[^/]+$/, "")
+    /***** IndexedDB Helpers for Persisting the Library Directory Handle *****/
+    function getDB() {
+      return new Promise((resolve, reject) => {
+        const request = indexedDB.open("htmlreader-db", 1);
+        request.onupgradeneeded = e => {
+          const db = e.target.result;
+          db.createObjectStore("handles", { keyPath: "name" });
         };
-
-        const items = spine.getElementsByTagName("itemref");
-        for (let item of items) {
-          const id = item.getAttribute("idref");
-          const manifestItem = manifest.querySelector(`item[id="${id}"]`);
-          if (manifestItem) {
-            const filePath = manifestItem.getAttribute("href");
-            bookData.chapters.push(bookData.rootPath + filePath);
-          }
-        }
-
-        if (bookData.chapters.length === 0) {
-          throw new Error("Invalid EPUB: No chapters found");
-        }
-
-        populateChapters();
-        enableControls();
-      } catch (error) {
-        showError(`Error parsing EPUB: ${error.message}`);
-        console.error(error);
-      }
-    }
-
-    function enableControls() {
-      document.getElementById("chapterList").disabled = false;
-      updateNavigationButtons();
-    }
-
-    function updateNavigationButtons() {
-      document.getElementById("prevButton").disabled = currentChapter <= 0;
-      document.getElementById("nextButton").disabled =
-        currentChapter >= bookData.chapters.length - 1;
-    }
-
-    function populateChapters() {
-      const select = document.getElementById("chapterList");
-      select.innerHTML = "";
-      bookData.chapters.forEach((path, index) => {
-        const option = document.createElement("option");
-        option.value = index;
-        option.textContent = `Chapter ${index + 1}`;
-        select.appendChild(option);
+        request.onsuccess = e => resolve(e.target.result);
+        request.onerror = e => reject(e.target.error);
       });
-
-      currentChapter = 0;
-      loadChapter();
+    }
+    async function storeLibraryHandle(handle) {
+      const db = await getDB();
+      return new Promise((resolve, reject) => {
+        const tx = db.transaction("handles", "readwrite");
+        const store = tx.objectStore("handles");
+        const req = store.put({ name: "library", handle });
+        req.onsuccess = () => resolve();
+        req.onerror = e => reject(e.target.error);
+      });
+    }
+    async function getStoredLibraryHandle() {
+      const db = await getDB();
+      return new Promise((resolve, reject) => {
+        const tx = db.transaction("handles", "readonly");
+        const store = tx.objectStore("handles");
+        const req = store.get("library");
+        req.onsuccess = () => resolve(req.result ? req.result.handle : null);
+        req.onerror = e => reject(e.target.error);
+      });
     }
 
-    function resolveImagePath(imgSrc, rootPath) {
-      // Handle absolute paths
-      if (
-        imgSrc.startsWith("http://") ||
-        imgSrc.startsWith("https://") ||
-        imgSrc.startsWith("data:")
-      ) {
-        return imgSrc;
-      }
+    /***** DOM Elements *****/
+    const openButton = document.getElementById('open-button');
+    const fileInput = document.getElementById('file-input');
+    const libraryInput = document.getElementById('library-input');
+    const libraryButton = document.getElementById('library-button');
+    const closeLibraryButton = document.getElementById('close-library');
+    const tocButton = document.getElementById('toc-button');
+    const closeTocButton = document.getElementById('close-toc');
+    const prevButton = document.getElementById('prev-button');
+    const nextButton = document.getElementById('next-button');
+    const viewer = document.getElementById('viewer');
+    const currentPageInput = document.getElementById('current-page');
+    const totalPagesSpan = document.getElementById('total-pages');
+    const bookTitleSpan = document.getElementById('book-title');
+    const tocContainer = document.getElementById('toc-container');
+    const tocContent = document.getElementById('toc-content');
+    const libraryContainer = document.getElementById('library-container');
+    const libraryContent = document.getElementById('library-content');
+    const overlay = document.getElementById('overlay');
+    const loadingMessage = document.getElementById('loading-message');
+    const errorMessage = document.getElementById('error-message');
+    const errorText = document.getElementById('error-text');
+    const closeErrorButton = document.getElementById('close-error');
 
-      // Handle relative paths
-      let path = imgSrc;
-      if (imgSrc.startsWith("../")) {
-        const parts = rootPath.split("/");
-        parts.pop(); // Remove current directory
-        path = parts.join("/") + "/" + imgSrc.replace("../", "");
-      } else if (!imgSrc.startsWith("/")) {
-        path = rootPath + imgSrc;
-      }
+    /***** Book Variables *****/
+    let book = null;
+    let rendition = null;
+    let displayed = null;
+    let currentLocation = 0;
+    let locations = null;
 
-      // Clean up path
-      return path.replace(/\/+/g, "/");
+    /***** Event Listeners *****/
+    openButton.addEventListener('click', () => fileInput.click());
+    fileInput.addEventListener('change', openBook);
+    prevButton.addEventListener('click', prevPage);
+    nextButton.addEventListener('click', nextPage);
+    currentPageInput.addEventListener('change', goToPage);
+    tocButton.addEventListener('click', toggleToc);
+    closeTocButton.addEventListener('click', toggleToc);
+    libraryButton.addEventListener('click', openLibrary);
+    closeLibraryButton.addEventListener('click', () => toggleLibrary(false));
+    overlay.addEventListener('click', () => {
+      closeToc();
+      toggleLibrary(false);
+      hideError();
+    });
+    closeErrorButton.addEventListener('click', hideError);
+    // Fallback: multiple file input for library import
+    libraryInput.addEventListener('change', handleLibraryFiles);
+
+    /***** Book Opening Functions *****/
+    function openBook(e) {
+      const file = e.target.files[0];
+      if (!file) return;
+      if (file.type !== 'application/epub+zip' && !file.name.endsWith('.epub')) {
+        showError('The selected file is not a valid EPUB file.');
+        return;
+      }
+      showLoading();
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        const bookData = e.target.result;
+        loadBook(bookData).then(() => {
+          hideLoading();
+        }).catch(err => {
+          hideLoading();
+          showError('Error loading book: ' + err.message);
+        });
+      };
+      reader.onerror = function(e) {
+        hideLoading();
+        showError('Error reading file: ' + e.target.error);
+      };
+      reader.readAsArrayBuffer(file);
     }
 
-    async function loadChapter() {
+    // Immediately close library on click so the user sees the main viewer
+    // (and the loading spinner) right away
+    async function openBookFromEntry(entry) {
+      // Close library right away
+      toggleLibrary(false);
+      showLoading();
       try {
-        if (!bookData) return;
-
-        const select = document.getElementById("chapterList");
-        currentChapter = parseInt(select.value);
-        const filePath = bookData.chapters[currentChapter];
-
-        const chapterFile = bookData.files.file(filePath);
-        if (!chapterFile) {
-          throw new Error(`Chapter file not found: ${filePath}`);
-        }
-
-        const content = await chapterFile.async("text");
-        const parser = new DOMParser();
-        const doc = parser.parseFromString(content, "text/html");
-
-        // Process styles
-        let styleText = "";
-        const styles = doc.querySelectorAll('link[rel="stylesheet"], style');
-        for (let style of styles) {
-          if (style.tagName === "LINK") {
-            const cssPath = bookData.rootPath + style.getAttribute("href");
-            const cssFile = bookData.files.file(cssPath);
-            if (cssFile) {
-              const cssContent = await cssFile.async("text");
-              styleText += `<style>${cssContent}</style>`;
-            }
-          } else {
-            styleText += style.outerHTML;
-          }
-        }
-
-        // Process images
-        const images = doc.querySelectorAll("img");
-        for (let img of images) {
-          try {
-            const imgSrc = img.getAttribute("src");
-            if (!imgSrc) continue;
-
-            const imgPath = resolveImagePath(imgSrc, bookData.rootPath);
-            const imgFile = bookData.files.file(imgPath);
-
-            if (imgFile) {
-              const imgBlob = await imgFile.async("base64");
-              const imgExt = imgSrc.split(".").pop().toLowerCase();
-              const mimeType =
-                imgExt === "jpg" || imgExt === "jpeg"
-                  ? "image/jpeg"
-                  : imgExt === "png"
-                  ? "image/png"
-                  : imgExt === "gif"
-                  ? "image/gif"
-                  : imgExt === "svg"
-                  ? "image/svg+xml"
-                  : "image/jpeg";
-              img.setAttribute("src", `data:${mimeType};base64,${imgBlob}`);
-            }
-          } catch (error) {
-            console.warn(`Failed to load image: ${error.message}`);
-          }
-        }
-
-        const contentDiv = document.getElementById("content");
-        contentDiv.innerHTML = styleText + doc.body.innerHTML;
-        // Allow a short delay to let the content render before calculating pages
-        setTimeout(() => {
-          calculateTotalPages();
-          updatePageInfo();
-          updateNavigationButtons();
-          clearError();
-        }, 100);
-      } catch (error) {
-        showError(`Error loading chapter: ${error.message}`);
-        console.error(error);
+        const file = await entry.getFile();
+        const arrayBuffer = await file.arrayBuffer();
+        await loadBook(arrayBuffer);
+      } catch (err) {
+        // If error, reopen library so user can pick another book
+        toggleLibrary(true);
+        showError('Error opening book: ' + err.message);
+      } finally {
+        hideLoading();
       }
     }
 
-    function calculateTotalPages() {
-      const container = document.getElementById("content-container");
-      const scrollHeight = container.scrollHeight;
-      const containerHeight = container.clientHeight;
-      totalPages = Math.ceil(scrollHeight / containerHeight);
-
-      // Update page navigation buttons
-      document.getElementById("prevPageBtn").disabled = currentPage <= 1;
-      document.getElementById("nextPageBtn").disabled = currentPage >= totalPages;
+    async function loadBook(bookData, startLocation) {
+      if (book) {
+        book = null;
+        rendition = null;
+        viewer.innerHTML = '';
+      }
+      book = ePub(bookData);
+      await book.ready;
+      rendition = book.renderTo('viewer', {
+        width: '100%',
+        height: '100%',
+        spread: 'none'
+      });
+      displayed = rendition.display(startLocation);
+      await generateToc();
+      await generateLocations();
+      prevButton.disabled = false;
+      nextButton.disabled = false;
+      tocButton.disabled = false;
+      rendition.on('relocated', location => {
+        currentLocation = location.start.cfi;
+        if (locations) {
+          const pageNumber = book.locations.locationFromCfi(location.start.cfi);
+          currentPageInput.value = pageNumber + 1;
+        }
+      });
+      window.addEventListener('keyup', handleKeyEvents);
+      // Set the book title in header if available
+      try {
+        const metadata = await book.loaded.metadata;
+        if (metadata.title) {
+          bookTitleSpan.textContent = metadata.title;
+        } else {
+          bookTitleSpan.textContent = "Untitled EPUB";
+        }
+      } catch {
+        bookTitleSpan.textContent = "EPUB Book";
+      }
+      return displayed;
     }
 
-    function updatePageInfo() {
-      const container = document.getElementById("content-container");
-      const containerHeight = container.clientHeight;
-      currentPage = Math.ceil(container.scrollTop / containerHeight) + 1;
-
-      document.getElementById("current-page").textContent = currentPage;
-      document.getElementById("total-pages").textContent = totalPages;
-
-      // Update page navigation buttons
-      document.getElementById("prevPageBtn").disabled = currentPage <= 1;
-      document.getElementById("nextPageBtn").disabled = currentPage >= totalPages;
-    }
-
-    // Listen to scroll events on the container to update page info
-    document
-      .getElementById("content-container")
-      .addEventListener("scroll", updatePageInfo);
-
-    function prevChapter() {
-      if (currentChapter > 0) {
-        document.getElementById("chapterList").value = currentChapter - 1;
-        loadChapter();
+    async function generateLocations() {
+      if (!book) return;
+      try {
+        await book.locations.generate(1000);
+        locations = book.locations;
+        totalPagesSpan.textContent = book.locations.length();
+      } catch (err) {
+        console.error('Error generating locations:', err);
       }
     }
 
-    function nextChapter() {
-      if (currentChapter < bookData.chapters.length - 1) {
-        document.getElementById("chapterList").value = currentChapter + 1;
-        loadChapter();
+    async function generateToc() {
+      if (!book) return;
+      try {
+        const toc = await book.navigation.toc;
+        tocContent.innerHTML = '';
+        toc.forEach(item => {
+          const tocItem = document.createElement('div');
+          tocItem.className = 'toc-item';
+          tocItem.textContent = item.label;
+          tocItem.addEventListener('click', () => {
+            rendition.display(item.href);
+            closeToc();
+          });
+          tocContent.appendChild(tocItem);
+        });
+      } catch (err) {
+        console.error('Error generating TOC:', err);
       }
     }
 
     function prevPage() {
-      const container = document.getElementById("content-container");
-      const containerHeight = container.clientHeight;
-      container.scrollBy({
-        top: -containerHeight,
-        behavior: "smooth"
-      });
+      if (rendition) rendition.prev();
     }
-
     function nextPage() {
-      const container = document.getElementById("content-container");
-      const containerHeight = container.clientHeight;
-      container.scrollBy({
-        top: containerHeight,
-        behavior: "smooth"
-      });
+      if (rendition) rendition.next();
+    }
+    function goToPage() {
+      if (!book || !locations) return;
+      const pageNumber = parseInt(currentPageInput.value, 10) - 1;
+      if (pageNumber >= 0 && pageNumber < book.locations.length()) {
+        const cfi = book.locations.cfiFromLocation(pageNumber);
+        rendition.display(cfi);
+      }
+    }
+    function handleKeyEvents(e) {
+      if (!book || !rendition) return;
+      if (e.key === 'ArrowLeft') prevPage();
+      if (e.key === 'ArrowRight') nextPage();
     }
 
-    document.addEventListener("DOMContentLoaded", function () {
-        document.getElementById("content").addEventListener("click", function (e) {
-            const target = e.target.closest("a");
-            if (!target) return;
-    
-            let href = target.getAttribute("href");
-            if (!href || !href.includes("#")) return; // Ignore links without a fragment
-    
-            e.preventDefault(); // Prevent default navigation
-    
-            // Extract filename and fragment
-            const [linkFile, fragment] = href.split("#");
-            const currentFile = window.location.pathname.split("/").pop(); // Current file name
-    
-            if (!fragment) {
-                console.warn("No fragment found in link:", href);
-                return;
-            }
-    
-            // If the link is in the same file OR if it's just a fragment reference, scroll
-            if (!linkFile || linkFile === currentFile) {
-                const targetElement = document.getElementById(fragment);
-                if (targetElement) {
-                    console.log("Scrolling to:", fragment);
-                    targetElement.scrollIntoView({ behavior: "smooth", block: "center" });
-                } else {
-                    console.warn("Target element not found for id:", fragment);
-                }
-            } else {
-                console.warn("Different file detected, default navigation allowed:", linkFile);
-            }
-        });
-    });
+    function toggleToc() {
+      tocContainer.classList.toggle('open');
+      overlay.classList.toggle('open');
+    }
+    function closeToc() {
+      tocContainer.classList.remove('open');
+      overlay.classList.remove('open');
+    }
 
+    /***** Library Functions *****/
+    async function openLibrary() {
+      try {
+        // Try to retrieve stored library directory handle
+        let dirHandle = await getStoredLibraryHandle();
+        if (!dirHandle) {
+          // If no stored handle, prompt user
+          dirHandle = await window.showDirectoryPicker();
+          await storeLibraryHandle(dirHandle);
+        }
+        const files = [];
+        for await (const entry of dirHandle.values()) {
+          if (entry.kind === 'file' && entry.name.endsWith('.epub')) {
+            files.push(entry);
+          }
+        }
+        displayLibraryGrid(files);
+        toggleLibrary(true);
+      } catch (err) {
+        showError('Failed to open library: ' + err.message);
+      }
+    }
+    // Fallback for multiple file selection if directory picker is not available
+    function handleLibraryFiles(e) {
+      const files = Array.from(e.target.files);
+      displayLibraryGrid(files);
+      toggleLibrary(true);
+    }
+
+    async function displayLibraryGrid(fileEntries) {
+      libraryContent.innerHTML = '';
+      if (fileEntries.length === 0) {
+        const msg = document.createElement('div');
+        msg.textContent = 'No EPUB files found.';
+        libraryContent.appendChild(msg);
+        return;
+      }
+      for (const entry of fileEntries) {
+        const item = await createLibraryItem(entry);
+        libraryContent.appendChild(item);
+      }
+    }
+
+    async function createLibraryItem(fileEntry) {
+      const item = document.createElement('div');
+      item.className = 'library-item';
+      const img = document.createElement('img');
+      img.className = 'library-cover';
+      img.src = '';
+      const titleDiv = document.createElement('div');
+      titleDiv.className = 'library-title';
+      titleDiv.textContent = fileEntry.name;
+      item.appendChild(img);
+      item.appendChild(titleDiv);
+
+      try {
+        // If using the File System Access API:
+        const file = (typeof fileEntry.getFile === 'function')
+                      ? await fileEntry.getFile()
+                      : fileEntry;
+        const arrayBuffer = await file.arrayBuffer();
+        const tempBook = ePub(arrayBuffer);
+        // Attempt to retrieve cover image URL
+        const coverUrl = await tempBook.coverUrl();
+        if (coverUrl) {
+          img.src = coverUrl;
+        } else {
+          // Use a generic placeholder if no cover
+          img.src = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAMgAAADICAMAAACahl6sAAAAM1BMVEX///+hoaGcnJzPz8/Nzc3FxcXn5+fQ0NDy8vL29vbw8PDv7+/d3d2+vr6UlJSakGz1AAACNklEQVR4nO3d2ZKDIBAFUa8El//+uvLFT6qkSpknG/JpLve86o3QF8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD8S/w66a8vEcn8eHS6HQ58n8eHS6HQ58n8eHS6HQ58n8eHS6HQ58n8eHS6HQ58n8eHS6HQ58n8eHS6HQ58n8eHS6HQ58n8eHS6HQ58n8eHS6HQ58n8eHS6HQ58n8eHS6HQ58n8eHS6HQ58n8eHS6HQ58n8eHS6HQ58n8eHS6HQ58n8eHS6HQ58n8eHS6HQ58n8eHS6HQ58n8eHS6HQ58n8eHS6HQ58n8eHS6HQ58n8eHS6HQ58n8eHS6HQ58n8eHS6HQ58n8eHS6HQ58n8eHS6HQ58n8eHS6HQ58n8eHS6HQ58n8eHS6HQ58n8eHS6HQ58n8eHS6HQ58n8eHS6HQ58n8eHS6HQ58n8eHS6HQ58n8eHS6HQ58n8eHS6HQ58n8eHS6HQ58n8eHS6HQ58n8eHS6HQ5+n/wP2S/3mmugUsAAAAASUVORK5CYII=';
+        }
+        const metadata = await tempBook.loaded.metadata;
+        if (metadata.title) {
+          titleDiv.textContent = metadata.title;
+        }
+      } catch (err) {
+        console.error('Error loading cover for', fileEntry.name, err);
+      }
+
+      // No { once: true } so user can try again if there's an error
+      item.addEventListener('click', () => {
+        openBookFromEntry(fileEntry);
+      });
+
+      return item;
+    }
+
+    function toggleLibrary(forceOpen) {
+      if (forceOpen === true) {
+        libraryContainer.classList.add('open');
+        overlay.classList.add('open');
+      } else if (forceOpen === false) {
+        libraryContainer.classList.remove('open');
+        overlay.classList.remove('open');
+      } else {
+        libraryContainer.classList.toggle('open');
+        overlay.classList.toggle('open');
+      }
+    }
+
+    /***** Message Functions *****/
+    function showLoading() {
+      loadingMessage.classList.add('show');
+    }
+    function hideLoading() {
+      loadingMessage.classList.remove('show');
+    }
+    function showError(message) {
+      errorText.textContent = message;
+      errorMessage.classList.add('show');
+    }
+    function hideError() {
+      errorMessage.classList.remove('show');
+    }
   </script>
 </body>
 </html>
