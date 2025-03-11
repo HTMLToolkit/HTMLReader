@@ -1,7 +1,7 @@
 {
   "name": "HTMLReader",
   "short_name": "HTMLReader",
-  "start_url": "/",
+  "start_url": "/HTMLReader",
   "display": "standalone",
   "background_color": "#f5f5f5",
   "theme_color": "#2196F3",
