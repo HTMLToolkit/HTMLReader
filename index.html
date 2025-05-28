@@ -646,7 +646,9 @@
   <script>
     document.addEventListener("DOMContentLoaded", function() {
       if ("serviceWorker" in navigator) {
-        navigator.serviceWorker.register("service-worker.js");
+        navigator.serviceWorker.register("service-worker.js", {
+          scope: "/HTMLReader/"
+        });
       }
   
       let deferredPrompt;
