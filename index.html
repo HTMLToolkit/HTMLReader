@@ -8,7 +8,6 @@
   <link rel="shortcut icon" type="image/x-icon" href="favicon.png">
   <link rel="apple-touch-icon" href="/favicon.png">
   <link rel="manifest" href="manifest.json">
-  <!-- Using File System Access API for library persistence and fallback File API -->
   <script src="https://cdn.jsdelivr.net/npm/jszip/dist/jszip.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/epubjs/dist/epub.min.js"></script>
   <style>
@@ -98,7 +97,7 @@
       border: 1px solid #cbd5e0;
       border-radius: 4px;
     }
-    /* TOC container remains similar */
+    /* TOC container */
     .toc-container {
       position: fixed;
       top: 0;
@@ -109,7 +108,7 @@
       box-shadow: 2px 0 5px rgba(0,0,0,0.1);
       transform: translateX(-100%);
       transition: transform 0.3s ease;
-      z-index: 10;
+      z-index: 1000;
       display: flex;
       flex-direction: column;
     }
@@ -146,11 +145,10 @@
       height: 90%;
       background-color: white;
       box-shadow: 0 0 10px rgba(0,0,0,0.5);
-      z-index: 20;
+      z-index: 1000;
       display: flex;
       flex-direction: column;
       overflow: hidden;
-      /* Make sure it's hidden by default: */
       transform: translateY(-120%);
       transition: transform 0.3s ease;
     }
@@ -201,7 +199,7 @@
       width: 100%;
       height: 100%;
       background-color: rgba(0,0,0,0.5);
-      z-index: 15;
+      z-index: 999;
       display: none;
     }
     .overlay.open {
@@ -216,12 +214,34 @@
       padding: 2rem;
       border-radius: 8px;
       box-shadow: 0 4px 8px rgba(0,0,0,0.1);
-      z-index: 25;
+      z-index: 1001;
       display: none;
       text-align: center;
     }
     .message.show {
       display: block;
+    }
+    .library-method-choice {
+      background-color: white;
+      padding: 2rem;
+      border-radius: 8px;
+      box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+      z-index: 1001;
+      display: none;
+      text-align: center;
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+    }
+    .library-method-choice.show {
+      display: block;
+    }
+    .method-buttons {
+      display: flex;
+      gap: 1rem;
+      justify-content: center;
+      margin-top: 1rem;
     }
     @media (max-width: 768px) {
       .title {
@@ -254,9 +274,8 @@
       <button id="open-button">Open EPUB</button>
       <button id="library-button">Library</button>
       <input type="file" id="file-input" class="file-input" accept=".epub">
-      <!-- Fallback multiple file input for library import -->
-      <input type="file" id="library-input" class="file-input" accept=".epub" multiple>
-      <button id="install-button" hidden>Install App</button> <!-- New Install Button -->
+      <!-- Directory picker input using webkitdirectory -->
+      <input type="file" id="directory-input" class="file-input" webkitdirectory multiple>
     </div>
   </header>
   <main>
@@ -272,6 +291,7 @@
     </div>
     <button id="next-button" disabled>Next ➡</button>
   </footer>
+  
   <!-- TOC Container -->
   <div class="toc-container" id="toc-container">
     <div class="toc-header">
@@ -280,7 +300,8 @@
     </div>
     <div class="toc-content" id="toc-content"></div>
   </div>
-  <!-- Library Popup (hidden by default) -->
+  
+  <!-- Library Popup -->
   <div class="library-container" id="library-container">
     <div class="library-header">
       <h3>Library</h3>
@@ -288,55 +309,138 @@
     </div>
     <div class="library-content" id="library-content"></div>
   </div>
+  
+  <!-- Library Method Choice Dialog -->
+  <div class="library-method-choice" id="library-method-choice">
+    <h3>Choose Library Access Method</h3>
+    <p>How would you like to access your EPUB library?</p>
+    <div class="method-buttons">
+      <button id="use-directory-picker">Select Folder</button>
+      <button id="use-stored-handle">Use Previously Selected Folder</button>
+      <button id="close-method-choice">Cancel</button>
+    </div>
+  </div>
+  
   <div class="overlay" id="overlay"></div>
+  
   <div class="message" id="loading-message">
     <h3>Loading EPUB...</h3>
     <p>Please wait while your book is being processed.</p>
   </div>
+  
   <div class="message" id="error-message">
     <h3>Error</h3>
     <p id="error-text">There was an error processing your EPUB file.</p>
     <button id="close-error">Close</button>
   </div>
-  
   <script>
+    document.addEventListener("DOMContentLoaded", function() {
+      if ("serviceWorker" in navigator) {
+        navigator.serviceWorker.register("service-worker.js");
+       }
+       }
+
+    }
+      let deferredPrompt;
+      const installButton = document.getElementById("install-button");
+
+      window.addEventListener("beforeinstallprompt", (e) => {
+        e.preventDefault();
+        deferredPrompt = e;
+        installButton.hidden = false;
+      });
+
+      installButton.addEventListener("click", async () => {
+        const isStandalone = window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone;
+
+        if (isStandalone) {
+          console.log("App is already installed");
+          return;
+        }
+
+        if (deferredPrompt) {
+          deferredPrompt.prompt();
+          const { outcome } = await deferredPrompt.userChoice;
+          deferredPrompt = null;
+          if (outcome === "accepted") {
+            console.log("User accepted install prompt");
+          } else {
+            console.log("User dismissed install prompt");
+          }
+        } else {
+          if (window.matchMedia("(display-mode: browser)").matches) {
+            window.location.assign("chrome://apps/");
+          }
+        }
+      });
+    });
+  </script> 
+  <script type="module">
     /***** IndexedDB Helpers for Persisting the Library Directory Handle *****/
     function getDB() {
       return new Promise((resolve, reject) => {
-        const request = indexedDB.open("htmlreader-db", 1);
+        const request = indexedDB.open("HTMLReaderDB", 2);
         request.onupgradeneeded = e => {
           const db = e.target.result;
-          db.createObjectStore("handles", { keyPath: "name" });
+          if (!db.objectStoreNames.contains("handles")) {
+            db.createObjectStore("handles", { keyPath: "name" });
+          }
         };
         request.onsuccess = e => resolve(e.target.result);
         request.onerror = e => reject(e.target.error);
       });
     }
+    
     async function storeLibraryHandle(handle) {
-      const db = await getDB();
-      return new Promise((resolve, reject) => {
-        const tx = db.transaction("handles", "readwrite");
-        const store = tx.objectStore("handles");
-        const req = store.put({ name: "library", handle });
-        req.onsuccess = () => resolve();
-        req.onerror = e => reject(e.target.error);
-      });
+      try {
+        const db = await getDB();
+        return new Promise((resolve, reject) => {
+          const tx = db.transaction("handles", "readwrite");
+          const store = tx.objectStore("handles");
+          const req = store.put({ name: "library", handle });
+          req.onsuccess = () => resolve();
+          req.onerror = e => reject(e.target.error);
+        });
+      } catch (error) {
+        console.warn('Could not store library handle:', error);
+      }
     }
+    
     async function getStoredLibraryHandle() {
-      const db = await getDB();
-      return new Promise((resolve, reject) => {
-        const tx = db.transaction("handles", "readonly");
-        const store = tx.objectStore("handles");
-        const req = store.get("library");
-        req.onsuccess = () => resolve(req.result ? req.result.handle : null);
-        req.onerror = e => reject(e.target.error);
-      });
+      try {
+        const db = await getDB();
+        return new Promise((resolve, reject) => {
+          const tx = db.transaction("handles", "readonly");
+          const store = tx.objectStore("handles");
+          const req = store.get("library");
+          req.onsuccess = () => resolve(req.result ? req.result.handle : null);
+          req.onerror = e => reject(e.target.error);
+        });
+      } catch (error) {
+        console.warn('Could not retrieve stored library handle:', error);
+        return null;
+      }
+    }
+
+    async function clearStoredLibraryHandle() {
+      try {
+        const db = await getDB();
+        return new Promise((resolve, reject) => {
+          const tx = db.transaction("handles", "readwrite");
+          const store = tx.objectStore("handles");
+          const req = store.delete("library");
+          req.onsuccess = () => resolve();
+          req.onerror = e => reject(e.target.error);
+        });
+      } catch (error) {
+        console.warn('Could not clear stored library handle:', error);
+      }
     }
 
     /***** DOM Elements *****/
     const openButton = document.getElementById('open-button');
     const fileInput = document.getElementById('file-input');
-    const libraryInput = document.getElementById('library-input');
+    const directoryInput = document.getElementById('directory-input');
     const libraryButton = document.getElementById('library-button');
     const closeLibraryButton = document.getElementById('close-library');
     const tocButton = document.getElementById('toc-button');
@@ -356,6 +460,10 @@
     const errorMessage = document.getElementById('error-message');
     const errorText = document.getElementById('error-text');
     const closeErrorButton = document.getElementById('close-error');
+    const libraryMethodChoice = document.getElementById('library-method-choice');
+    const useDirectoryPicker = document.getElementById('use-directory-picker');
+    const useStoredHandle = document.getElementById('use-stored-handle');
+    const closeMethodChoice = document.getElementById('close-method-choice');
 
     /***** Book Variables *****/
     let book = null;
@@ -371,17 +479,15 @@
     nextButton.addEventListener('click', nextPage);
     currentPageInput.addEventListener('change', goToPage);
     tocButton.addEventListener('click', toggleToc);
-    closeTocButton.addEventListener('click', toggleToc);
+    closeTocButton.addEventListener('click', closeToc);
     libraryButton.addEventListener('click', openLibrary);
-    closeLibraryButton.addEventListener('click', () => toggleLibrary(false));
-    overlay.addEventListener('click', () => {
-      closeToc();
-      toggleLibrary(false);
-      hideError();
-    });
+    closeLibraryButton.addEventListener('click', closeLibrary);
+    overlay.addEventListener('click', closeAllOverlays);
     closeErrorButton.addEventListener('click', hideError);
-    // Fallback: multiple file input for library import
-    libraryInput.addEventListener('change', handleLibraryFiles);
+    directoryInput.addEventListener('change', handleDirectorySelection);
+    useDirectoryPicker.addEventListener('click', selectDirectory);
+    useStoredHandle.addEventListener('click', useStoredDirectory);
+    closeMethodChoice.addEventListener('click', closeLibraryMethodChoice);
 
     /***** Book Opening Functions *****/
     function openBook(e) {
@@ -409,19 +515,20 @@
       reader.readAsArrayBuffer(file);
     }
 
-    // Immediately close library on click so the user sees the main viewer
-    // (and the loading spinner) right away
-    async function openBookFromEntry(entry) {
-      // Close library right away
-      toggleLibrary(false);
+    async function openBookFromFile(file) {
+      closeLibrary();
       showLoading();
       try {
-        const file = await entry.getFile();
-        const arrayBuffer = await file.arrayBuffer();
+        let arrayBuffer;
+        if (file.arrayBuffer) {
+          arrayBuffer = await file.arrayBuffer();
+        } else {
+          // Fallback for File System Access API files
+          const fileHandle = await file.getFile();
+          arrayBuffer = await fileHandle.arrayBuffer();
+        }
         await loadBook(arrayBuffer);
       } catch (err) {
-        // If error, reopen library so user can pick another book
-        toggleLibrary(true);
         showError('Error opening book: ' + err.message);
       } finally {
         hideLoading();
@@ -455,6 +562,7 @@
         }
       });
       window.addEventListener('keyup', handleKeyEvents);
+      
       // Set the book title in header if available
       try {
         const metadata = await book.loaded.metadata;
@@ -521,39 +629,116 @@
     }
 
     function toggleToc() {
-      tocContainer.classList.toggle('open');
-      overlay.classList.toggle('open');
+      const isOpen = tocContainer.classList.contains('open');
+      if (isOpen) {
+        closeToc();
+      } else {
+        tocContainer.classList.add('open');
+        overlay.classList.add('open');
+      }
     }
+    
     function closeToc() {
       tocContainer.classList.remove('open');
-      overlay.classList.remove('open');
+      if (!libraryContainer.classList.contains('open')) {
+        overlay.classList.remove('open');
+      }
     }
 
     /***** Library Functions *****/
     async function openLibrary() {
-      try {
-        // Try to retrieve stored library directory handle
-        let dirHandle = await getStoredLibraryHandle();
-        if (!dirHandle) {
-          // If no stored handle, prompt user
-          dirHandle = await window.showDirectoryPicker();
-          await storeLibraryHandle(dirHandle);
+      console.log('Opening library...');
+      
+      // Check if we have File System Access API support
+      if ('showDirectoryPicker' in window) {
+        // Check if we have a stored handle
+        const storedHandle = await getStoredLibraryHandle();
+        if (storedHandle) {
+          showLibraryMethodChoice();
+        } else {
+          selectDirectory();
         }
+      } else {
+        // Fallback to webkitdirectory
+        console.log('Using webkitdirectory fallback');
+        directoryInput.click();
+      }
+    }
+
+    function showLibraryMethodChoice() {
+      libraryMethodChoice.classList.add('show');
+      overlay.classList.add('open');
+    }
+
+    function closeLibraryMethodChoice() {
+      libraryMethodChoice.classList.remove('show');
+      overlay.classList.remove('open');
+    }
+
+    async function selectDirectory() {
+      closeLibraryMethodChoice();
+      
+      if ('showDirectoryPicker' in window) {
+        try {
+          const dirHandle = await window.showDirectoryPicker({ mode: 'read' });
+          await storeLibraryHandle(dirHandle);
+          await loadLibraryFromHandle(dirHandle);
+        } catch (error) {
+          if (error.name !== 'AbortError') {
+            console.error('Error selecting directory:', error);
+            showError('Error selecting directory: ' + error.message);
+          }
+        }
+      } else {
+        // Fallback to webkitdirectory
+        directoryInput.click();
+      }
+    }
+
+    async function useStoredDirectory() {
+      closeLibraryMethodChoice();
+      
+      try {
+        const dirHandle = await getStoredLibraryHandle();
+        if (dirHandle) {
+          // Verify we still have permission
+          const permission = await dirHandle.requestPermission({ mode: 'read' });
+          if (permission === 'granted') {
+            await loadLibraryFromHandle(dirHandle);
+          } else {
+            await clearStoredLibraryHandle();
+            showError('Permission denied. Please select the directory again.');
+          }
+        } else {
+          showError('No stored directory found.');
+        }
+      } catch (error) {
+        console.error('Error using stored directory:', error);
+        await clearStoredLibraryHandle();
+        showError('Error accessing stored directory. Please select it again.');
+      }
+    }
+
+    async function loadLibraryFromHandle(dirHandle) {
+      showLoading();
+      try {
         const files = [];
         for await (const entry of dirHandle.values()) {
           if (entry.kind === 'file' && entry.name.endsWith('.epub')) {
             files.push(entry);
           }
         }
-        displayLibraryGrid(files);
+        await displayLibraryGrid(files);
         toggleLibrary(true);
-      } catch (err) {
-        showError('Failed to open library: ' + err.message);
+      } catch (error) {
+        showError('Error loading library: ' + error.message);
+      } finally {
+        hideLoading();
       }
     }
-    // Fallback for multiple file selection if directory picker is not available
-    function handleLibraryFiles(e) {
-      const files = Array.from(e.target.files);
+
+    function handleDirectorySelection(e) {
+      const files = Array.from(e.target.files).filter(file => file.name.endsWith('.epub'));
       displayLibraryGrid(files);
       toggleLibrary(true);
     }
@@ -562,54 +747,79 @@
       libraryContent.innerHTML = '';
       if (fileEntries.length === 0) {
         const msg = document.createElement('div');
-        msg.textContent = 'No EPUB files found.';
+        msg.textContent = 'No EPUB files found in the selected directory.';
+        msg.style.gridColumn = '1 / -1';
+        msg.style.textAlign = 'center';
+        msg.style.padding = '2rem';
         libraryContent.appendChild(msg);
         return;
       }
+      
       for (const entry of fileEntries) {
-        const item = await createLibraryItem(entry);
-        libraryContent.appendChild(item);
+        try {
+          const item = await createLibraryItem(entry);
+          libraryContent.appendChild(item);
+        } catch (error) {
+          console.error('Error creating library item for', entry.name, error);
+        }
       }
     }
 
     async function createLibraryItem(fileEntry) {
       const item = document.createElement('div');
       item.className = 'library-item';
+      
       const img = document.createElement('img');
       img.className = 'library-cover';
-      img.src = '';
+      img.src = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxNTAiIGhlaWdodD0iMjAwIiB2aWV3Qm94PSIwIDAgMTUwIDIwMCI+PHJlY3Qgd2lkdGg9IjE1MCIgaGVpZ2h0PSIyMDAiIGZpbGw9IiNlZWUiLz48dGV4dCB4PSI3NSIgeT0iMTAwIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBkeT0iLjNlbSIgZmlsbD0iIzk5OSI+Qk9PSzwvdGV4dD48L3N2Zz4=';
+      
       const titleDiv = document.createElement('div');
       titleDiv.className = 'library-title';
-      titleDiv.textContent = fileEntry.name;
+      titleDiv.textContent = fileEntry.name || 'Unknown Title';
+      
       item.appendChild(img);
       item.appendChild(titleDiv);
 
+      // Try to load cover and metadata
       try {
-        // If using the File System Access API:
-        const file = (typeof fileEntry.getFile === 'function')
-                      ? await fileEntry.getFile()
-                      : fileEntry;
+        let file;
+        if (fileEntry.getFile) {
+          // File System Access API
+          file = await fileEntry.getFile();
+        } else {
+          // Regular File object (webkitdirectory)
+          file = fileEntry;
+        }
+        
         const arrayBuffer = await file.arrayBuffer();
         const tempBook = ePub(arrayBuffer);
-        // Attempt to retrieve cover image URL
-        const coverUrl = await tempBook.coverUrl();
-        if (coverUrl) {
-          img.src = coverUrl;
-        } else {
-          // Use a generic placeholder if no cover
-          img.src = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAMgAAADICAMAAACahl6sAAAAM1BMVEX///+hoaGcnJzPz8/Nzc3FxcXn5+fQ0NDy8vL29vbw8PDv7+/d3d2+vr6UlJSakGz1AAACNklEQVR4nO3d2ZKDIBAFUa8El//+uvLFT6qkSpknG/JpLve86o3QF8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD8S/w66a8vEcn8eHS6HQ58n8eHS6HQ58n8eHS6HQ58n8eHS6HQ58n8eHS6HQ58n8eHS6HQ58n8eHS6HQ58n8eHS6HQ58n8eHS6HQ58n8eHS6HQ58n8eHS6HQ58n8eHS6HQ58n8eHS6HQ58n8eHS6HQ58n8eHS6HQ58n8eHS6HQ58n8eHS6HQ58n8eHS6HQ58n8eHS6HQ58n8eHS6HQ58n8eHS6HQ58n8eHS6HQ58n8eHS6HQ58n8eHS6HQ58n8eHS6HQ58n8eHS6HQ58n8eHS6HQ58n8eHS6HQ58n8eHS6HQ58n8eHS6HQ58n8eHS6HQ58n8eHS6HQ58n8eHS6HQ58n8eHS6HQ58n8eHS6HQ58n8eHS6HQ58n8eHS6HQ58n8eHS6HQ58n8eHS6HQ58n8eHS6HQ5+n/wP2S/3mmugUsAAAAASUVORK5CYII=';
+        await tempBook.ready;
+        
+        // Try to get cover
+        try {
+          const coverUrl = await tempBook.coverUrl();
+          if (coverUrl) {
+            img.src = coverUrl;
+          }
+        } catch (coverError) {
+          console.log('No cover found for', fileEntry.name);
         }
-        const metadata = await tempBook.loaded.metadata;
-        if (metadata.title) {
-          titleDiv.textContent = metadata.title;
+        
+        // Try to get metadata
+        try {
+          const metadata = await tempBook.loaded.metadata;
+          if (metadata.title) {
+            titleDiv.textContent = metadata.title;
+          }
+        } catch (metadataError) {
+          console.log('No metadata found for', fileEntry.name);
         }
       } catch (err) {
-        console.error('Error loading cover for', fileEntry.name, err);
+        console.error('Error loading book preview for', fileEntry.name, err);
       }
 
-      // No { once: true } so user can try again if there's an error
       item.addEventListener('click', () => {
-        openBookFromEntry(fileEntry);
+        openBookFromFile(fileEntry);
       });
 
       return item;
@@ -621,67 +831,51 @@
         overlay.classList.add('open');
       } else if (forceOpen === false) {
         libraryContainer.classList.remove('open');
-        overlay.classList.remove('open');
+        if (!tocContainer.classList.contains('open')) {
+          overlay.classList.remove('open');
+        }
       } else {
         libraryContainer.classList.toggle('open');
         overlay.classList.toggle('open');
       }
     }
 
+    function closeLibrary() {
+      libraryContainer.classList.remove('open');
+      if (!tocContainer.classList.contains('open')) {
+        overlay.classList.remove('open');
+      }
+    }
+
+    function closeAllOverlays() {
+      closeToc();
+      closeLibrary();
+      closeLibraryMethodChoice();
+      hideError();
+    }
+
     /***** Message Functions *****/
     function showLoading() {
       loadingMessage.classList.add('show');
+      overlay.classList.add('open');
     }
     function hideLoading() {
       loadingMessage.classList.remove('show');
+      if (!tocContainer.classList.contains('open') && !libraryContainer.classList.contains('open') && !libraryMethodChoice.classList.contains('show')) {
+        overlay.classList.remove('open');
+      }
     }
     function showError(message) {
       errorText.textContent = message;
       errorMessage.classList.add('show');
+      overlay.classList.add('open');
     }
     function hideError() {
       errorMessage.classList.remove('show');
-    }
-  </script>
-  <script>
-    document.addEventListener("DOMContentLoaded", function() {
-      if ("serviceWorker" in navigator) {
-        navigator.serviceWorker.register("service-worker.js");
+      if (!tocContainer.classList.contains('open') && !libraryContainer.classList.contains('open') && !libraryMethodChoice.classList.contains('show')) {
+        overlay.classList.remove('open');
       }
-  
-      let deferredPrompt;
-      const installButton = document.getElementById("install-button");
-  
-      window.addEventListener("beforeinstallprompt", (e) => {
-        e.preventDefault();
-        deferredPrompt = e;
-        installButton.hidden = false;
-      });
-  
-      installButton.addEventListener("click", async () => {
-        const isStandalone = window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone;
-        
-        if (isStandalone) {
-          console.log("App is already installed");
-          return;
-        }
-  
-        if (deferredPrompt) {
-          deferredPrompt.prompt();
-          const { outcome } = await deferredPrompt.userChoice;
-          deferredPrompt = null;
-          if (outcome === "accepted") {
-            console.log("User accepted install prompt");
-          } else {
-            console.log("User dismissed install prompt");
-          }
-        } else {
-          if (window.matchMedia("(display-mode: browser)").matches) {
-            window.location.assign("chrome://apps/");
-          }
-        }
-      });
-    });
+    }
   </script>
 </body>
 </html>
