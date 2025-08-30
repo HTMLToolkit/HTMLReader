@@ -1,6 +1,6 @@
 import fs from 'fs-extra';
 import path from 'path';
-import rimraf from 'rimraf';
+import { rimraf } from 'rimraf';
 import { fileURLToPath } from 'url';
 
 // ES module __dirname fix
