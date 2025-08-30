@@ -1,112 +1,67 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>HTMLRunner</title>
-    <link rel="shortcut icon" type="image/x-icon" href="favicon.png">
-    <link rel="apple-touch-icon" href="favicon.png">
-    <link rel="manifest" href="manifest.json">
-    <!-- Font Awesome CDN -->
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
-    <!-- CodeMirror CSS -->
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.7/codemirror.min.css">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.7/theme/monokai.min.css">
-    <!-- CodeMirror Addons CSS -->
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.7/addon/lint/lint.min.css">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.7/addon/dialog/dialog.min.css">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.7/addon/search/matchesonscrollbar.min.css">
-    <!-- Main Styles-->
-    <!-- prettier-ignore-start -->
-    <link rel="stylesheet" data-inline="true" href="styles.css">
-    <!-- prettier-ignore-end -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://code.jquery.com https://unpkg.com https://d3js.org https://threejs.org https://cdn.plot.ly https://stackpath.bootstrapcdn.com https://maps.googleapis.com https://cdn.tailwindcss.com https://ajax.googleapis.com https://kit.fontawesome.com https://cdn.datatables.net https://maxcdn.bootstrapcdn.com https://code.highcharts.com; frame-src 'self'; child-src 'self'; manifest-src 'self'; worker-src 'self'; upgrade-insecure-requests; block-all-mixed-content;">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HTMLReader</title>
+  <link rel="stylesheet" href="./src/style.css" />
 </head>
 <body>
-    <div class="loading" id="loading">
-        <div class="spinner"></div>
+  <header>
+    <div class="title">
+      <span>HTMLReader</span>
+      <span class="book-title" id="book-title"></span>
     </div>
-    <div class="error-message" id="error-message"></div>
-    <div class="container">
-        <div class="header">
-            <div class="logo">HTMLRunner</div>
-            <div class="controls">
-                <button class="btn" id="install-button" hidden>Install App</button>
-                <button class="btn btn-run" onclick="runCode()"><i class="fas fa-play"></i> Run</button>
-                <button class="btn btn-format" onclick="formatCode()"><i class="fas fa-code"></i> Format</button>
-                <button class="btn btn-reset" onclick="resetCode()"><i class="fas fa-undo"></i> Reset</button>
-                <button class="btn btn-clear" onclick="clearConsole()"><i class="fas fa-trash"></i> Clear Console</button>
-                <button class="btn btn-download" onclick="exportAsZip()"><i class="fas fa-download"></i> Export Code</button>
-                <button class="btn btn-auto-run" onclick="toggleAutoRun()"><i class="fas fa-sync"></i> Auto-Run: <span id="auto-run-status">Off</span></button>
-                <button class="theme-toggle" onclick="toggleDarkMode()">
-                    <i class="fas fa-moon"></i>
-                    <span>Dark Mode</span>
-                </button>
-            </div>
-        </div>
-        <div class="main">
-            <div class="editor-panel" id="editor-panel">
-                <div class="editor-tabs">
-                    <div class="tab active" data-tab="html" onclick="switchTab('html')">HTML</div>
-                    <div class="tab" data-tab="css" onclick="switchTab('css')">CSS</div>
-                    <div class="tab" data-tab="js" onclick="switchTab('js')">JavaScript</div>
-                </div>
-                <div class="editor-container" id="html-editor-container"></div>
-                <div class="editor-container" style="display: none;" id="css-editor-container"></div>
-                <div class="editor-container" style="display: none;" id="js-editor-container"></div>
-            </div>
-            <div class="output-panel" id="output-panel">
-                <div class="output-tabs">
-                    <div class="tab active" data-output="preview" onclick="switchOutput('preview')">Preview</div>
-                    <div class="tab" data-output="console" onclick="switchOutput('console')">Console</div>
-                </div>
-                <div class="output-content">
-                    <iframe id="preview" class="preview active"></iframe>
-                    <div id="console" class="console"></div>
-                </div>
-            </div>
-        </div>
+    <div class="controls">
+      <button id="toc-button" disabled>Table of Contents</button>
+      <button id="open-button">Open EPUB</button>
+      <button id="library-button">Library</button>
+      <input type="file" id="file-input" class="file-input" accept=".epub">
+      <!-- Fallback multiple file input for library import -->
+      <input type="file" id="library-input" class="file-input" accept=".epub" multiple>
+      <button id="install-button" hidden>Install App</button> <!-- New Install Button -->
     </div>
-    <script>
-        document.addEventListener("DOMContentLoaded", function() {
-            // Register the service worker
-            if ("serviceWorker" in navigator) {
-                navigator.serviceWorker.register("service-worker.js");
-            }
-    
-            let deferredPrompt;
-            const installButton = document.getElementById("install-button");
-    
-            // Listen for the install prompt
-            window.addEventListener("beforeinstallprompt", (e) => {
-                e.preventDefault();
-                deferredPrompt = e;
-                installButton.hidden = false;
-            });
-    
-            // Handle install button click
-            installButton.addEventListener("click", async () => {
-                const isStandalone = window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone;
-    
-                if (isStandalone) {
-                    console.log("App is already installed");
-                    return;
-                }
-    
-                if (deferredPrompt) {
-                    deferredPrompt.prompt();
-                    const { outcome } = await deferredPrompt.userChoice;
-                    deferredPrompt = null;
-                    console.log(outcome === "accepted" ? "User accepted install prompt" : "User dismissed install prompt");
-                } else {
-                    if (window.matchMedia("(display-mode: browser)").matches) {
-                        window.location.assign("chrome://apps/");
-                    }
-                }
-            });
-        });
-    </script>
-    <!-- prettier-ignore-start -->
-    <script data-inline="true" src="main.js"></script>
-    <!-- prettier-ignore-end -->
+  </header>
+  <main>
+    <div id="viewer"></div>
+  </main>
+  <footer>
+    <button id="prev-button" disabled>⬅ Previous</button>
+    <div class="page-info">
+      <span>Page</span>
+      <input type="number" id="current-page" min="1" value="1">
+      <span>of</span>
+      <span id="total-pages">1</span>
+    </div>
+    <button id="next-button" disabled>Next ➡</button>
+  </footer>
+  <!-- TOC Container -->
+  <div class="toc-container" id="toc-container">
+    <div class="toc-header">
+      <h3>Table of Contents</h3>
+      <button id="close-toc">Close</button>
+    </div>
+    <div class="toc-content" id="toc-content"></div>
+  </div>
+  <!-- Library Popup (hidden by default) -->
+  <div class="library-container" id="library-container">
+    <div class="library-header">
+      <h3>Library</h3>
+      <button id="close-library">Close</button>
+    </div>
+    <div class="library-content" id="library-content"></div>
+  </div>
+  <div class="overlay" id="overlay"></div>
+  <div class="message" id="loading-message">
+    <h3>Loading EPUB...</h3>
+    <p>Please wait while your book is being processed.</p>
+  </div>
+  <div class="message" id="error-message">
+    <h3>Error</h3>
+    <p id="error-text">There was an error processing your EPUB file.</p>
+    <button id="close-error">Close</button>
+  </div>
 </body>
+<script type="module" src="./src/main.js"></script>
 </html>
