@@ -1,0 +1,45 @@
+{
+  "name": "htmlreader",
+  "version": "2.1.0",
+  "description": "A quick HTML-based ePub Reader that works offline.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "export": "node export.mjs"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/HTMLToolkit/HTMLReader.git"
+  },
+  "keywords": [
+    "offline",
+    "pwa",
+    "html-css-javascript",
+    "htmltoolkit"
+  ],
+  "author": "NellowTCS",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/HTMLToolkit/HTMLReader/issues"
+  },
+  "homepage": "https://github.com/HTMLToolkit/HTMLReader#readme",
+  "dependencies": {
+    "epubjs": "^0.3.93",
+    "vite": "^7.1.5"
+  },
+  "devDependencies": {
+    "@eslint/css": "^0.11.0",
+    "@eslint/js": "^9.35.0",
+    "@eslint/json": "^0.13.2",
+    "@eslint/markdown": "^7.2.0",
+    "babel-jest": "^30.1.2",
+    "eslint": "^9.35.0",
+    "fs-extra": "^11.3.1",
+    "globals": "^16.4.0",
+    "rimraf": "^6.0.1",
+    "vite-plugin-pwa": "^1.0.3"
+  }
+}
