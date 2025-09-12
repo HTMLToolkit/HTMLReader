@@ -23,8 +23,21 @@ export async function openLibrary() {
     let dirHandle = await getStoredLibraryHandle();
     if (!dirHandle) {
       // If no stored handle, prompt user
+      if (!('showDirectoryPicker' in window)) {
+        // Fallback: trigger multiple file input flow
+        document.getElementById('library-input')?.click();
+        return;
+      }
       dirHandle = await window.showDirectoryPicker();
       await storeLibraryHandle(dirHandle);
+    }
+    // Permissions for persisted handles can be lost between sessions
+    if (dirHandle.queryPermission && dirHandle.requestPermission) {
+      const perm = await dirHandle.queryPermission({ mode: 'read' });
+      if (perm !== 'granted') {
+        const res = await dirHandle.requestPermission({ mode: 'read' });
+        if (res !== 'granted') throw new Error('Read permission was denied for the library directory.');
+      }
     }
     const files = [];
     for await (const entry of dirHandle.values()) {
@@ -38,6 +51,7 @@ export async function openLibrary() {
     showError('Failed to open library: ' + err.message);
   }
 }
+
 /**
  * Handle a file-input change by displaying selected EPUB files in the library and opening the library UI.
  * @param {Event} e - Change event from a file input (`<input type="file" multiple>`); selected File objects are read and shown in the library grid.

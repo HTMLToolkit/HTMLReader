@@ -29,11 +29,12 @@ export async function storeLibraryHandle(handle) {
   return new Promise((resolve, reject) => {
     const tx = db.transaction("handles", "readwrite");
     const store = tx.objectStore("handles");
-    const req = store.put({ name: "library", handle });
-    req.onsuccess = () => resolve();
-    req.onerror = e => reject(e.target.error);
+    store.put({ name: "library", handle });
+    tx.oncomplete = () => resolve();
+    tx.onabort = tx.onerror = e => reject(tx.error || (e && e.target && e.target.error));
   });
 }
+
 /**
  * Retrieve the stored library handle from the "handles" object store.
  *

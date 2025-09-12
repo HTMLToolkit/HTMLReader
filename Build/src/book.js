@@ -73,7 +73,7 @@ export async function openBookFromEntry(entry) {
   toggleLibrary(false);
   showLoading();
   try {
-    const file = (entry && typeof entry.getFile === 'function') ? await entry.getFile() : entry;
+    const file = (typeof entry?.getFile === 'function') ? await entry.getFile() : entry;
     const arrayBuffer = await file.arrayBuffer();
     await loadBook(arrayBuffer);
   } catch (err) {
@@ -124,6 +124,8 @@ async function loadBook(bookData, startLocation) {
       currentPageInput.value = pageNumber + 1;
     }
   });
+  window.removeEventListener('keyup', handleKeyEvents);
+  window.addEventListener('keyup', handleKeyEvents);
   window.addEventListener('keyup', handleKeyEvents);
   // Set the book title in header if available
   try {
