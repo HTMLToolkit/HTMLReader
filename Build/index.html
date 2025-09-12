@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta http-equiv="Content-Security-Policy" content="
     default-src 'self' blob: data:;
@@ -13,9 +14,11 @@
     upgrade-insecure-requests; block-all-mixed-content;">
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="A modern EPUB reader with library management">
   <title>HTMLReader</title>
   <link rel="stylesheet" href="./src/style.css" />
 </head>
+
 <body>
   <header>
     <div class="title">
@@ -23,54 +26,98 @@
       <span class="book-title" id="book-title"></span>
     </div>
     <div class="controls">
-      <button id="toc-button" disabled>Table of Contents</button>
-      <button id="open-button">Open EPUB</button>
-      <button id="library-button">Library</button>
-      <input type="file" id="file-input" class="file-input" accept=".epub">
-      <!-- Fallback multiple file input for library import -->
-      <input type="file" id="library-input" class="file-input" accept=".epub" multiple>
-      <button id="install-button" hidden>Install App</button> <!-- New Install Button -->
+      <button id="toc-button" disabled title="View table of contents">
+        Contents
+      </button>
+      <button id="open-button" title="Open an EPUB file">
+        Open EPUB
+      </button>
+      <button id="library-button" title="Browse your library">
+        Library
+      </button>
+      <input type="file" id="file-input" class="file-input" accept=".epub" aria-label="Select EPUB file">
+      <input type="file" id="library-input" class="file-input" accept=".epub" multiple
+        aria-label="Select multiple EPUB files for library">
+      <button id="install-button" hidden title="Install as PWA">
+        Install
+      </button>
+      <button id="fullscreen-button" title="Toggle fullscreen reading">
+        Fullscreen
+      </button>
     </div>
   </header>
+
   <main>
-    <div id="viewer"></div>
+    <div id="viewer" role="main" aria-live="polite"></div>
+    <div id="reading-progress" class="progress-bar" style="display: none;">
+      <div id="reading-progress-fill" class="progress-fill"></div>
+    </div>
   </main>
+
   <footer>
-    <button id="prev-button" disabled>⬅ Previous</button>
+    <button id="prev-button" disabled title="Previous page (Left arrow)" aria-label="Previous page">
+      ⬅ Previous
+    </button>
     <div class="page-info">
-      <span>Page</span>
-      <input type="number" id="current-page" min="1" value="1">
+      <label for="current-page">Page</label>
+      <input type="number" id="current-page" min="1" value="1" aria-label="Current page number">
       <span>of</span>
       <span id="total-pages">1</span>
     </div>
-    <button id="next-button" disabled>Next ➡</button>
+    <button id="next-button" disabled title="Next page (Right arrow)" aria-label="Next page">
+      Next ➡
+    </button>
   </footer>
-  <!-- TOC Container -->
-  <div class="toc-container" id="toc-container">
+
+  <!-- Table of Contents -->
+  <nav class="toc-container" id="toc-container" role="navigation" aria-label="Table of Contents">
     <div class="toc-header">
       <h3>Table of Contents</h3>
-      <button id="close-toc">Close</button>
+      <button id="close-toc" title="Close table of contents">✕</button>
     </div>
-    <div class="toc-content" id="toc-content"></div>
-  </div>
-  <!-- Library Popup (hidden by default) -->
-  <div class="library-container" id="library-container">
+    <div class="toc-content" id="toc-content" role="list"></div>
+  </nav>
+
+  <!-- Library Modal -->
+  <div class="library-container" id="library-container" role="dialog" aria-labelledby="library-title" aria-modal="true">
     <div class="library-header">
-      <h3>Library</h3>
-      <button id="close-library">Close</button>
+      <h3 id="library-title">Your Library</h3>
+      <button id="close-library" title="Close library">✕</button>
     </div>
-    <div class="library-content" id="library-content"></div>
+    <div class="library-content" id="library-content" role="grid"></div>
   </div>
-  <div class="overlay" id="overlay"></div>
-  <div class="message" id="loading-message">
+
+  <!-- Overlay -->
+  <div class="overlay" id="overlay" aria-hidden="true"></div>
+
+  <!-- Loading Message -->
+  <div class="message" id="loading-message" role="status" aria-live="polite">
+    <div class="loading-spinner" aria-hidden="true"></div>
     <h3>Loading EPUB...</h3>
     <p>Please wait while your book is being processed.</p>
+    <div class="progress-bar">
+      <div id="loading-progress" class="progress-fill"></div>
+    </div>
   </div>
-  <div class="message" id="error-message">
+
+  <!-- Error Message -->
+  <div class="message" id="error-message" role="alert" aria-live="assertive">
     <h3>Error</h3>
     <p id="error-text">There was an error processing your EPUB file.</p>
     <button id="close-error">Close</button>
+    <button id="retry-action" style="display: none;">Retry</button>
   </div>
+
+  <!-- Success Message -->
+  <div class="message" id="success-message" role="status">
+    <h3>Success</h3>
+    <p id="success-text">Operation completed successfully!</p>
+    <button id="close-success">Close</button>
+  </div>
+
+  <script src="node_modules/eruda/eruda.js"></script>
+<script>eruda.init();</script>
+  <script type="module" src="./src/main.js"></script>
 </body>
-<script type="module" src="./src/main.js"></script>
+
 </html>

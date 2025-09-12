@@ -1,15 +1,21 @@
+/* eslint-disable no-unused-vars */
 import ePub from "epubjs";
-import { showLoading, showError, hideLoading } from "./main";
-import { toggleLibrary } from "./library";
+import { showLoading, showError, hideLoading, showSuccess, updateLoadingProgress, debounce } from "./main.js";
+import { toggleLibrary } from "./library.js";
 
-/***** Book Variables *****/
+/***** Book State *****/
 let book = null;
 let rendition = null;
 let displayed = null;
 let locations = null;
-// eslint-disable-next-line no-unused-vars
 let currentLocation = 0;
-
+let bookSettings = {
+  fontSize: 16,
+  fontFamily: 'serif',
+  theme: 'default',
+  lineHeight: 1.6,
+  margin: 20
+};
 
 /***** DOM Elements *****/
 const tocButton = document.getElementById('toc-button');
@@ -22,240 +28,621 @@ const bookTitleSpan = document.getElementById('book-title');
 const tocContainer = document.getElementById('toc-container');
 const tocContent = document.getElementById('toc-content');
 const viewer = document.getElementById('viewer');
+const fullscreenButton = document.getElementById('fullscreen-button');
+const readingProgress = document.getElementById('reading-progress');
+const readingProgressFill = document.getElementById('reading-progress-fill');
 
 /**
- * Open an EPUB file selected via a file input and load it into the viewer.
- *
- * Validates the selected file is an EPUB, shows a loading indicator, reads the file
- * as an ArrayBuffer, and calls loadBook with the file data. On read/load errors
- * it hides the loading indicator and displays an error message.
- *
- * @param {Event} e - Change event from a file input; the function reads e.target.files[0].
+ * Open an EPUB file from file input with validation and error handling
+ * @param {Event} e - File input change event
  */
 export function openBook(e) {
   const file = e.target.files[0];
   if (!file) return;
-  if (file.type !== 'application/epub+zip' && !file.name.endsWith('.epub')) {
-    showError('The selected file is not a valid EPUB file.');
+  
+  // file validation
+  const validExtensions = ['.epub'];
+  const validMimeTypes = ['application/epub+zip'];
+  
+  const isValidExtension = validExtensions.some(ext => file.name.toLowerCase().endsWith(ext));
+  const isValidMimeType = validMimeTypes.includes(file.type);
+  
+  if (!isValidExtension && !isValidMimeType) {
+    showError('Please select a valid EPUB file (.epub extension required).');
     return;
   }
-  showLoading();
+  
+  // Check file size (reasonable limit: 100MB)
+  if (file.size > 100 * 1024 * 1024) {
+    showError('File is too large. Please select an EPUB file smaller than 100MB.');
+    return;
+  }
+  
+  showLoading('Reading EPUB file...', true);
+  
   const reader = new FileReader();
-  reader.onload = function(e) {
-    const bookData = e.target.result;
-    loadBook(bookData).then(() => {
-      hideLoading();
-    }).catch(err => {
-      hideLoading();
-      showError('Error loading book: ' + err.message);
-    });
+  
+  reader.onloadstart = () => {
+    updateLoadingProgress(10);
   };
-  reader.onerror = function(e) {
+  
+  reader.onprogress = (e) => {
+    if (e.lengthComputable) {
+      const percentage = Math.round((e.loaded / e.total) * 50); // 50% for file reading
+      updateLoadingProgress(percentage);
+    }
+  };
+  
+  reader.onload = async function(e) {
+    try {
+      updateLoadingProgress(60);
+      const bookData = e.target.result;
+      await loadBook(bookData);
+      showSuccess(`"${file.name}" loaded successfully!`);
+    } catch (err) {
+      console.error('Error loading book:', err);
+      showError('Error loading book: ' + (err.message || 'Unknown error'), () => openBook(e));
+    } finally {
+      hideLoading();
+    }
+  };
+  
+  reader.onerror = function(err) {
     hideLoading();
-    showError('Error reading file: ' + e.target.error);
+    console.error('File reading error:', err);
+    showError('Error reading file. The file may be corrupted or inaccessible.', () => openBook(e));
   };
+  
   reader.readAsArrayBuffer(file);
 }
 
-// Immediately close library on click so the user sees the main viewer
 /**
- * Open and load an EPUB from a library entry, managing the library UI and loading spinner.
- *
- * Reads the file from the given library entry (object with an async `getFile()` method), converts it to an ArrayBuffer,
- * and delegates to `loadBook` to render the book. Closes the library and shows a loading indicator while loading.
- * If an error occurs, the library is reopened and an error message is shown; the function always hides the loading indicator before returning.
- *
- * @param {Object} entry - Library entry providing an async `getFile()` method that returns a `File`/Blob.
- * @return {Promise<void>} Resolves once loading has finished or an error has been handled.
+ * Open and load an EPUB from a library entry with improved error handling
+ * @param {Object} entry - Library entry with getFile() method
  */
 export async function openBookFromEntry(entry) {
-  // Close library right away
   toggleLibrary(false);
-  showLoading();
+  showLoading('Opening book from library...', true);
+  
   try {
+    updateLoadingProgress(20);
     const file = (typeof entry?.getFile === 'function') ? await entry.getFile() : entry;
+    
+    updateLoadingProgress(40);
     const arrayBuffer = await file.arrayBuffer();
+    
+    updateLoadingProgress(60);
     await loadBook(arrayBuffer);
+    
+    showSuccess(`Book opened successfully!`);
   } catch (err) {
-    // If error, reopen library so user can pick another book
+    console.error('Error opening book from library:', err);
     toggleLibrary(true);
-    showError('Error opening book: ' + err.message);
+    showError('Error opening book: ' + (err.message || 'Unknown error'), () => openBookFromEntry(entry));
   } finally {
     hideLoading();
   }
 }
 
 /**
- * Load and render an EPUB into the viewer, initialise navigation, and wire up UI and event handlers.
- *
- * This replaces any currently loaded book, creates a new ePub instance and rendition rendered into the
- * viewer element, generates the table of contents and location map, enables navigation controls,
- * and registers relocation and keyboard listeners. The relocation handler updates the global
- * `currentLocation` and the page input when location data exists. Also attempts to set the visible
- * book title from metadata (with fallbacks).
- *
- * @param {ArrayBuffer|Uint8Array|Blob|string} bookData - EPUB data or URL accepted by epubjs.
- * @param {string} [startLocation] - Optional initial location (CFI or href) to display.
- * @returns {Promise} A promise that resolves when the rendition's initial display operation completes.
+ * Load and render an EPUB with comprehensive setup and error handling
+ * @param {ArrayBuffer|Uint8Array|Blob|string} bookData - EPUB data
+ * @param {string} [startLocation] - Optional initial location
  */
 async function loadBook(bookData, startLocation) {
-  if (book) {
-    book = null;
-    rendition = null;
-    viewer.innerHTML = '';
-  }
-  book = ePub(bookData);
-  await book.ready;
-  rendition = book.renderTo('viewer', {
-    width: '100%',
-    height: '100%',
-    spread: 'none'
-  });
-  displayed = rendition.display(startLocation);
-  await generateToc();
-  await generateLocations();
-  prevButton.disabled = false;
-  nextButton.disabled = false;
-  tocButton.disabled = false;
-  rendition.on('relocated', location => {
-    currentLocation = location.start.cfi;
-    if (locations) {
-      const pageNumber = book.locations.locationFromCfi(location.start.cfi);
-      currentPageInput.value = pageNumber + 1;
-    }
-  });
-  window.removeEventListener('keyup', handleKeyEvents);
-  window.addEventListener('keyup', handleKeyEvents);
-  window.addEventListener('keyup', handleKeyEvents);
-  // Set the book title in header if available
   try {
-    const metadata = await book.loaded.metadata;
-    if (metadata.title) {
-      bookTitleSpan.textContent = metadata.title;
-    } else {
-      bookTitleSpan.textContent = "Untitled EPUB";
+    // Clean up previous book
+    if (book && rendition) {
+      await cleanupPreviousBook();
     }
-  } catch {
-    bookTitleSpan.textContent = "EPUB Book";
+    
+    updateLoadingProgress(70);
+    
+    // Create new book instance
+    book = ePub(bookData);
+    await book.ready;
+    
+    updateLoadingProgress(80);
+    
+    // Create rendition with settings
+    rendition = book.renderTo('viewer', {
+      width: '100%',
+      height: '100%',
+      spread: 'none',
+      allowScriptedContent: false,
+      allowPopups: false,
+      flow: 'paginated'
+    });
+    
+    // Apply stored settings
+    await applyBookSettings();
+    
+    updateLoadingProgress(90);
+    
+    // Display initial location
+    displayed = rendition.display(startLocation);
+    
+    // Setup all book features
+    await Promise.all([
+      generateToc(),
+      generateLocations(),
+      setupBookMetadata(),
+      setupEventHandlers()
+    ]);
+    
+    // Enable UI controls
+    enableBookControls();
+    
+    updateLoadingProgress(100);
+    
+    // Clear the file input for re-selection
+    const fileInput = document.getElementById('file-input');
+    if (fileInput) fileInput.value = '';
+    
+  } catch (error) {
+    console.error('Error in loadBook:', error);
+    throw new Error(`Failed to load EPUB: ${error.message}`);
   }
-  return displayed;
 }
 
 /**
- * Generate the book's virtual pagination (locations) and update the UI with the total page count.
- *
- * This async function returns early if no book is loaded. It calls the EPUB book's
- * locations.generate(1000) to build location data, stores the resulting locations in the
- * module-level `locations` variable, and updates `totalPagesSpan.textContent` with the
- * computed number of locations. Errors are caught and logged; the function does not throw.
+ * Clean up resources from previously loaded book
+ */
+async function cleanupPreviousBook() {
+  try {
+    if (rendition) {
+      rendition.destroy();
+    }
+    if (book) {
+      book = null;
+    }
+    
+    // Clear viewer
+    viewer.innerHTML = '';
+    
+    // Reset UI state
+    bookTitleSpan.textContent = '';
+    currentPageInput.value = 1;
+    totalPagesSpan.textContent = '1';
+    tocContent.innerHTML = '';
+    
+    // Hide reading progress
+    if (readingProgress) {
+      readingProgress.style.display = 'none';
+    }
+    
+  } catch (error) {
+    console.warn('Error during cleanup:', error);
+  }
+}
+
+/**
+ * Apply book display settings
+ */
+async function applyBookSettings() {
+  if (!rendition) return;
+  
+  try {
+    // Apply font settings
+    await rendition.themes.fontSize(`${bookSettings.fontSize}px`);
+    await rendition.themes.font(bookSettings.fontFamily);
+    
+    // Apply theme
+    if (bookSettings.theme === 'dark') {
+      await rendition.themes.override('color', '#e2e8f0');
+      await rendition.themes.override('background-color', '#1a202c');
+    } else if (bookSettings.theme === 'sepia') {
+      await rendition.themes.override('color', '#5c4317');
+      await rendition.themes.override('background-color', '#f7f3e9');
+    }
+    
+    // Apply spacing
+    await rendition.themes.override('line-height', bookSettings.lineHeight.toString());
+    await rendition.themes.override('margin', `${bookSettings.margin}px`);
+    
+  } catch (error) {
+    console.warn('Error applying book settings:', error);
+  }
+}
+
+/**
+ * Setup book metadata display
+ */
+async function setupBookMetadata() {
+  try {
+    const metadata = await book.loaded.metadata;
+    
+    if (metadata.title) {
+      bookTitleSpan.textContent = metadata.title;
+      document.title = `${metadata.title} - HTMLReader`;
+    } else {
+      bookTitleSpan.textContent = "Untitled EPUB";
+      document.title = "HTMLReader";
+    }
+    
+    // Store metadata for later use
+    book.metadata = metadata;
+    
+  } catch (error) {
+    console.warn('Error setting up metadata:', error);
+    bookTitleSpan.textContent = "EPUB Book";
+    document.title = "HTMLReader";
+  }
+}
+
+/**
+ * Setup event handlers for the rendition
+ */
+function setupEventHandlers() {
+  if (!rendition) return;
+  
+  // Location change handler with throttling
+  const debouncedLocationHandler = debounce((location) => {
+    currentLocation = location.start.cfi;
+    updatePageDisplay(location);
+    updateReadingProgress(location);
+  }, 150);
+  
+  rendition.on('relocated', debouncedLocationHandler);
+  
+  // Layout change handler
+  rendition.on('layout', (layout) => {
+    console.log('Layout updated:', layout);
+  });
+  
+  // Selection handler for potential future features
+  rendition.on('selected', (cfiRange, contents) => {
+    console.log('Text selected:', cfiRange);
+  });
+  
+  // Error handler
+  rendition.on('renderFailed', (error) => {
+    console.error('Render failed:', error);
+    showError('Error rendering book content. Some pages may not display correctly.');
+  });
+  
+  // Remove old keyboard listeners
+  document.removeEventListener('keydown', handleBookKeyboard);
+  document.addEventListener('keydown', handleBookKeyboard);
+}
+
+/**
+ * Update page display information
+ * @param {Object} location - Current location object
+ */
+function updatePageDisplay(location) {
+  if (locations && book.locations) {
+    try {
+      const pageNumber = book.locations.locationFromCfi(location.start.cfi);
+      currentPageInput.value = pageNumber + 1;
+    } catch (error) {
+      console.warn('Error updating page display:', error);
+    }
+  }
+}
+
+/**
+ * Update reading progress indicator
+ * @param {Object} location - Current location object
+ */
+function updateReadingProgress(location) {
+  if (!readingProgress || !readingProgressFill || !locations) return;
+  
+  try {
+    const progress = book.locations.percentageFromCfi(location.start.cfi);
+    const percentage = Math.round(progress * 100);
+    
+    readingProgressFill.style.width = `${percentage}%`;
+    readingProgress.style.display = 'block';
+    
+    // Update title with progress
+    const baseTitle = document.title.replace(/ \(\d+%\)$/, '');
+    document.title = `${baseTitle} (${percentage}%)`;
+    
+  } catch (error) {
+    console.warn('Error updating reading progress:', error);
+  }
+}
+
+/**
+ * Generate book locations for pagination with progress tracking
  */
 async function generateLocations() {
   if (!book) return;
+  
   try {
-    await book.locations.generate(1000);
+    console.log('Generating locations...');
+    
+    // Generate locations with progress callback
+    const locationsPromise = book.locations.generate(1600);
+    
+    // Wait for locations to be generated
+    await locationsPromise;
+    
     locations = book.locations;
-    totalPagesSpan.textContent = book.locations.length();
-  } catch (err) {
-    console.error('Error generating locations:', err);
+    const totalPages = book.locations.length();
+    totalPagesSpan.textContent = totalPages.toString();
+    
+    console.log(`Generated ${totalPages} locations`);
+    
+  } catch (error) {
+    console.error('Error generating locations:', error);
+    totalPagesSpan.textContent = '?';
   }
 }
 
 /**
- * Build and render the book's table of contents (TOC) into the UI.
- *
- * If a book is loaded, asynchronously reads the book's navigation TOC, clears the
- * existing TOC container, and creates a clickable entry for each TOC item.
- * Clicking an entry displays that location in the rendition and closes the TOC overlay.
- *
- * Does nothing if no book is loaded. Errors encountered while retrieving or
- * rendering the TOC are caught and logged to the console.
- *
- * @returns {Promise<void>} Resolves when the TOC has been generated and appended to the DOM.
+ * Generate table of contents with structure
  */
 async function generateToc() {
   if (!book) return;
+  
   try {
+    console.log('Generating table of contents...');
+    
     const toc = await book.navigation.toc;
     tocContent.innerHTML = '';
-    toc.forEach(item => {
-      const tocItem = document.createElement('div');
-      tocItem.className = 'toc-item';
-      tocItem.textContent = item.label;
-      tocItem.addEventListener('click', () => {
-        rendition.display(item.href);
-        closeToc();
-      });
+    
+    if (toc.length === 0) {
+      const noTocMessage = document.createElement('div');
+      noTocMessage.className = 'toc-item';
+      noTocMessage.textContent = 'No table of contents available';
+      noTocMessage.style.fontStyle = 'italic';
+      noTocMessage.style.color = 'var(--text-light)';
+      tocContent.appendChild(noTocMessage);
+      return;
+    }
+    
+    toc.forEach((item, index) => {
+      const tocItem = createTocItem(item, 0);
       tocContent.appendChild(tocItem);
     });
-  } catch (err) {
-    console.error('Error generating TOC:', err);
+    
+    console.log(`Generated TOC with ${toc.length} items`);
+    
+  } catch (error) {
+    console.error('Error generating TOC:', error);
+    tocContent.innerHTML = '<div class="toc-item" style="color: var(--text-light);">Error loading table of contents</div>';
   }
 }
 
 /**
- * Navigate the viewer to the previous page.
- *
- * If a rendition is active, calls its `prev()` method; otherwise does nothing.
+ * Create a table of contents item with proper nesting
+ * @param {Object} item - TOC item
+ * @param {number} level - Nesting level
+ * @returns {HTMLElement} TOC item element
  */
-export function prevPage() {
-  if (rendition) rendition.prev();
-}
-
-/**
- * Advance the current rendition to the next page/location.
- *
- * This is a no-op if no rendition is initialized.
- */
-export function nextPage() {
-  if (rendition) rendition.next();
-}
-
-/**
- * Navigate the viewer to the page number entered in the page input field.
- *
- * Reads a 1-based page number from `currentPageInput.value`, converts it to a
- * 0-based location index, validates it against the book's generated locations,
- * converts that location index to a CFI using `book.locations.cfiFromLocation`,
- * and displays it in the rendition.
- *
- * No action is taken if there is no loaded book or location data, or if the
- * entered page number is out of range or not a valid integer.
- */
-export function goToPage() {
-  if (!book || !locations) return;
-  const pageNumber = parseInt(currentPageInput.value, 10) - 1;
-  if (pageNumber >= 0 && pageNumber < book.locations.length()) {
-    const cfi = book.locations.cfiFromLocation(pageNumber);
-    rendition.display(cfi);
+function createTocItem(item, level) {
+  const tocItem = document.createElement('div');
+  tocItem.className = 'toc-item';
+  tocItem.style.paddingLeft = `${1.5 + level * 1}rem`;
+  tocItem.textContent = item.label || 'Untitled';
+  tocItem.setAttribute('role', 'listitem');
+  tocItem.setAttribute('tabindex', '0');
+  
+  // Click handler
+  const handleClick = async () => {
+    try {
+      await rendition.display(item.href);
+      closeToc();
+      showSuccess(`Navigated to: ${item.label}`);
+    } catch (error) {
+      console.error('Error navigating to TOC item:', error);
+      showError('Error navigating to selected chapter');
+    }
+  };
+  
+  tocItem.addEventListener('click', handleClick);
+  tocItem.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      handleClick();
+    }
+  });
+  
+  // Add nested items if they exist
+  if (item.subitems && item.subitems.length > 0) {
+    item.subitems.forEach(subitem => {
+      const subTocItem = createTocItem(subitem, level + 1);
+      tocContent.appendChild(subTocItem);
+    });
   }
+  
+  return tocItem;
 }
 
 /**
- * Handle keyboard navigation: left/right arrow keys move to the previous/next page.
- * @param {KeyboardEvent} e - Keyboard event; listens for 'ArrowLeft' to go to the previous page and 'ArrowRight' to go to the next page.
+ * Enable book-related UI controls
  */
-function handleKeyEvents(e) {
+function enableBookControls() {
+  prevButton.disabled = false;
+  nextButton.disabled = false;
+  tocButton.disabled = false;
+  currentPageInput.disabled = false;
+}
+
+/**
+ * Handle keyboard navigation for the book
+ * @param {KeyboardEvent} e - Keyboard event
+ */
+function handleBookKeyboard(e) {
   if (!book || !rendition) return;
-  if (e.key === 'ArrowLeft') prevPage();
-  if (e.key === 'ArrowRight') nextPage();
+  
+  // Don't interfere with input fields or when modals are open
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+  if (document.querySelector('.toc-container.open, .library-container.open, .message.show')) return;
+  
+  switch (e.key) {
+    case 'ArrowLeft':
+    case 'PageUp':
+      e.preventDefault();
+      prevPage();
+      break;
+    case 'ArrowRight':
+    case 'PageDown':
+    case ' ':
+      e.preventDefault();
+      nextPage();
+      break;
+    case 'Home':
+      e.preventDefault();
+      goToPage(1);
+      break;
+    case 'End':
+      e.preventDefault();
+      if (locations) {
+        goToPage(book.locations.length());
+      }
+      break;
+  }
+}
+
+/***** Navigation Functions *****/
+
+/**
+ * Navigate to previous page with error handling
+ */
+export async function prevPage() {
+  if (!rendition) return;
+  
+  try {
+    await rendition.prev();
+  } catch (error) {
+    console.error('Error navigating to previous page:', error);
+    showError('Error navigating to previous page');
+  }
 }
 
 /**
- * Toggle the visibility of the table of contents overlay.
- *
- * Adds or removes the 'open' class on the TOC container and the overlay element to show or hide the table of contents.
+ * Navigate to next page with error handling
+ */
+export async function nextPage() {
+  if (!rendition) return;
+  
+  try {
+    await rendition.next();
+  } catch (error) {
+    console.error('Error navigating to next page:', error);
+    showError('Error navigating to next page');
+  }
+}
+
+/**
+ * Navigate to specific page with validation
+ */
+export async function goToPage(pageNumber = null) {
+  if (!book || !locations) {
+    showError('Book locations not ready. Please wait for the book to fully load.');
+    return;
+  }
+  
+  try {
+    const targetPage = pageNumber || parseInt(currentPageInput.value, 10);
+    const pageIndex = targetPage - 1; // Convert to 0-based index
+    
+    if (pageIndex < 0 || pageIndex >= book.locations.length()) {
+      showError(`Page ${targetPage} is out of range. Please enter a page between 1 and ${book.locations.length()}.`);
+      return;
+    }
+    
+    const cfi = book.locations.cfiFromLocation(pageIndex);
+    await rendition.display(cfi);
+    
+  } catch (error) {
+    console.error('Error navigating to page:', error);
+    showError('Error navigating to specified page');
+  }
+}
+
+/***** UI Control Functions *****/
+
+/**
+ * Toggle table of contents with animation
  */
 export function toggleToc() {
-  tocContainer.classList.toggle('open');
-  overlay.classList.toggle('open');
+  const isOpen = tocContainer.classList.contains('open');
+  
+  if (isOpen) {
+    closeToc();
+  } else {
+    // Close library if open
+    toggleLibrary(false);
+    
+    tocContainer.classList.add('open');
+    overlay.classList.add('open');
+    
+    // Focus first TOC item for accessibility
+    setTimeout(() => {
+      const firstTocItem = tocContent.querySelector('.toc-item[tabindex="0"]');
+      if (firstTocItem) firstTocItem.focus();
+    }, 300);
+  }
 }
 
 /**
- * Close the table of contents overlay.
- *
- * Removes the 'open' class from the TOC container and the page overlay, hiding the table of contents.
+ * Close table of contents
  */
 export function closeToc() {
   tocContainer.classList.remove('open');
-  overlay.classList.remove('open');
+  
+  // Only hide overlay if no other modals are open
+  if (!document.querySelector('.library-container.open, .message.show')) {
+    overlay.classList.remove('open');
+  }
 }
+
+/**
+ * Toggle fullscreen reading mode
+ */
+export function toggleFullscreen() {
+  if (!document.fullscreenElement) {
+    document.documentElement.requestFullscreen().catch(err => {
+      console.error('Error entering fullscreen:', err);
+      showError('Unable to enter fullscreen mode');
+    });
+  } else {
+    document.exitFullscreen().catch(err => {
+      console.error('Error exiting fullscreen:', err);
+      showError('Unable to exit fullscreen mode');
+    });
+  }
+}
+
+/***** Utility Functions *****/
+
+/**
+ * Get current book information
+ * @returns {Object|null} Book information or null if no book loaded
+ */
+export function getCurrentBookInfo() {
+  if (!book) return null;
+  
+  return {
+    title: book.metadata?.title || 'Unknown',
+    author: book.metadata?.creator || 'Unknown',
+    currentLocation: currentLocation,
+    totalPages: locations ? book.locations.length() : 0,
+    progress: locations ? book.locations.percentageFromCfi(currentLocation) : 0
+  };
+}
+
+/**
+ * Export current reading position for bookmarking
+ * @returns {Object|null} Reading position data
+ */
+export function exportReadingPosition() {
+  const bookInfo = getCurrentBookInfo();
+  if (!bookInfo) return null;
+  
+  return {
+    ...bookInfo,
+    timestamp: Date.now(),
+    cfi: currentLocation
+  };
+}
+
+// Initialize fullscreen change listener
+document.addEventListener('fullscreenchange', () => {
+  const isFullscreen = !!document.fullscreenElement;
+  fullscreenButton.textContent = isFullscreen ? 'Exit Fullscreen' : 'Fullscreen';
+});
