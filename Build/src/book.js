@@ -73,7 +73,7 @@ export async function openBookFromEntry(entry) {
   toggleLibrary(false);
   showLoading();
   try {
-    const file = await entry.getFile();
+    const file = (entry && typeof entry.getFile === 'function') ? await entry.getFile() : entry;
     const arrayBuffer = await file.arrayBuffer();
     await loadBook(arrayBuffer);
   } catch (err) {

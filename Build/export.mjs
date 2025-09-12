@@ -1,7 +1,8 @@
 import fs from 'fs-extra';
 import path from 'path';
-import { rimraf } from 'rimraf';
+import { rimrafSync } from 'rimraf';
 import { fileURLToPath } from 'url';
+import process from 'process';
 
 // ES module __dirname fix
 const __filename = fileURLToPath(import.meta.url);
@@ -15,8 +16,13 @@ const keep = new Set(['README.md', 'LICENSE', 'Build']);
 
 // Clean repo root (skip hidden files/folders)
 fs.readdirSync(root).forEach(file => {
+  if (!fs.existsSync(dist) || fs.readdirSync(dist).length === 0) {
+    console.error('ERROR: dist is missing or empty:', dist);
+    process.exit(1);
+  }
+
   if (!keep.has(file) && !file.startsWith('.')) {  // <-- skip hidden
-    rimraf.sync(path.join(root, file));
+    rimrafSync(path.join(root, file));
     console.log('Deleted:', file);
   }
 });
