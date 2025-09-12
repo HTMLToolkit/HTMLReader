@@ -8,6 +8,15 @@ const libraryContainer = document.getElementById('library-container');
 const libraryContent = document.getElementById('library-content');
 const overlay = document.getElementById('overlay');
 
+/**
+ * Open the user's EPUB library: get or prompt for a directory, scan for .epub files, display them, and open the library UI.
+ *
+ * Attempts to use a previously stored directory handle; if none is available, prompts the user to pick a directory and stores the handle.
+ * Scans the directory for files whose names end with ".epub", passes those entries to the library grid renderer, and opens the library overlay.
+ * On failure, reports a user-facing error via showError; the function catches errors and does not rethrow.
+ *
+ * @returns {Promise<void>} Resolves after the library grid is displayed or after an error has been reported.
+ */
 export async function openLibrary() {
   try {
     // Try to retrieve stored library directory handle
@@ -29,13 +38,26 @@ export async function openLibrary() {
     showError('Failed to open library: ' + err.message);
   }
 }
-// Fallback for multiple file selection if directory picker is not available
+/**
+ * Handle a file-input change by displaying selected EPUB files in the library and opening the library UI.
+ * @param {Event} e - Change event from a file input (`<input type="file" multiple>`); selected File objects are read and shown in the library grid.
+ */
 export function handleLibraryFiles(e) {
   const files = Array.from(e.target.files);
   displayLibraryGrid(files);
   toggleLibrary(true);
 }
 
+/**
+ * Render a grid of EPUB items into the library UI.
+ *
+ * Clears the library content area and, for each entry in `fileEntries`, creates
+ * a library item (cover + title) and appends it to the grid. If `fileEntries`
+ * is empty, shows a "No EPUB files found." message instead.
+ *
+ * @param {Array<import('./types').FileEntry|File>} fileEntries - Array of file entries to display. Each entry may be a File, FileSystemFileHandle, or similar object accepted by createLibraryItem.
+ * @return {Promise<void>}
+ */
 async function displayLibraryGrid(fileEntries) {
   libraryContent.innerHTML = '';
   if (fileEntries.length === 0) {
@@ -50,6 +72,18 @@ async function displayLibraryGrid(fileEntries) {
   }
 }
 
+/**
+ * Create a DOM element representing an EPUB library item (cover + title) for the given file entry.
+ *
+ * The function accepts either a File object or a FileSystemFileHandle (from the File System Access API),
+ * reads the EPUB to extract a cover image and metadata title when available, and falls back to the
+ * file name and a generic placeholder cover if not. It attaches a click handler that opens the book
+ * via openBookFromEntry(fileEntry). Errors while loading cover/metadata are caught and logged; they
+ * do not prevent the returned element from being used.
+ *
+ * @param {File|FileSystemFileHandle} fileEntry - The EPUB file or a handle for the EPUB file.
+ * @return {HTMLElement} A '.library-item' element containing an image ('.library-cover') and title ('.library-title').
+ */
 async function createLibraryItem(fileEntry) {
   const item = document.createElement('div');
   item.className = 'library-item';
@@ -93,6 +127,11 @@ async function createLibraryItem(fileEntry) {
   return item;
 }
 
+/**
+ * Open, close, or toggle the library UI.
+ *
+ * @param {boolean|undefined} forceOpen - If true, ensures the library is opened; if false, ensures it is closed; if omitted, toggles the current state.
+ */
 export function toggleLibrary(forceOpen) {
   if (forceOpen === true) {
     libraryContainer.classList.add('open');

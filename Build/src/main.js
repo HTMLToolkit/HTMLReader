@@ -39,17 +39,38 @@ closeErrorButton.addEventListener('click', hideError);
 // Fallback: multiple file input for library import
 libraryInput.addEventListener('change', handleLibraryFiles);
 
-/***** Message Functions *****/
+/**
+ * Show the global loading message/overlay.
+ *
+ * Makes the loadingMessage element visible by adding the CSS `show` class.
+ */
 export function showLoading() {
   loadingMessage.classList.add('show');
 }
+/**
+ * Hide the global loading indicator.
+ *
+ * Removes the 'show' CSS class from the loading message element to hide the loading UI.
+ */
 export function hideLoading() {
   loadingMessage.classList.remove('show');
 }
+/**
+ * Display an error message in the UI.
+ *
+ * Sets the visible error panel's text to `message` and makes the panel visible by adding the `show` class.
+ *
+ * @param {string} message - The error text to display to the user.
+ */
 export function showError(message) {
   errorText.textContent = message;
   errorMessage.classList.add('show');
 }
+/**
+ * Hide the visible error message UI.
+ *
+ * Removes the 'show' class from the error message element so the error overlay is hidden.
+ */
 export function hideError() {
   errorMessage.classList.remove('show');
 }
