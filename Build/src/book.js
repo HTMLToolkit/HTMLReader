@@ -23,7 +23,15 @@ const tocContainer = document.getElementById('toc-container');
 const tocContent = document.getElementById('toc-content');
 const viewer = document.getElementById('viewer');
 
-/***** Book Opening functions *****/
+/**
+ * Open an EPUB file selected via a file input and load it into the viewer.
+ *
+ * Validates the selected file is an EPUB, shows a loading indicator, reads the file
+ * as an ArrayBuffer, and calls loadBook with the file data. On read/load errors
+ * it hides the loading indicator and displays an error message.
+ *
+ * @param {Event} e - Change event from a file input; the function reads e.target.files[0].
+ */
 export function openBook(e) {
   const file = e.target.files[0];
   if (!file) return;
@@ -50,7 +58,16 @@ export function openBook(e) {
 }
 
 // Immediately close library on click so the user sees the main viewer
-// (and the loading spinner) right away
+/**
+ * Open and load an EPUB from a library entry, managing the library UI and loading spinner.
+ *
+ * Reads the file from the given library entry (object with an async `getFile()` method), converts it to an ArrayBuffer,
+ * and delegates to `loadBook` to render the book. Closes the library and shows a loading indicator while loading.
+ * If an error occurs, the library is reopened and an error message is shown; the function always hides the loading indicator before returning.
+ *
+ * @param {Object} entry - Library entry providing an async `getFile()` method that returns a `File`/Blob.
+ * @return {Promise<void>} Resolves once loading has finished or an error has been handled.
+ */
 export async function openBookFromEntry(entry) {
   // Close library right away
   toggleLibrary(false);
@@ -68,6 +85,19 @@ export async function openBookFromEntry(entry) {
   }
 }
 
+/**
+ * Load and render an EPUB into the viewer, initialise navigation, and wire up UI and event handlers.
+ *
+ * This replaces any currently loaded book, creates a new ePub instance and rendition rendered into the
+ * viewer element, generates the table of contents and location map, enables navigation controls,
+ * and registers relocation and keyboard listeners. The relocation handler updates the global
+ * `currentLocation` and the page input when location data exists. Also attempts to set the visible
+ * book title from metadata (with fallbacks).
+ *
+ * @param {ArrayBuffer|Uint8Array|Blob|string} bookData - EPUB data or URL accepted by epubjs.
+ * @param {string} [startLocation] - Optional initial location (CFI or href) to display.
+ * @returns {Promise} A promise that resolves when the rendition's initial display operation completes.
+ */
 async function loadBook(bookData, startLocation) {
   if (book) {
     book = null;
@@ -109,6 +139,14 @@ async function loadBook(bookData, startLocation) {
   return displayed;
 }
 
+/**
+ * Generate the book's virtual pagination (locations) and update the UI with the total page count.
+ *
+ * This async function returns early if no book is loaded. It calls the EPUB book's
+ * locations.generate(1000) to build location data, stores the resulting locations in the
+ * module-level `locations` variable, and updates `totalPagesSpan.textContent` with the
+ * computed number of locations. Errors are caught and logged; the function does not throw.
+ */
 async function generateLocations() {
   if (!book) return;
   try {
@@ -120,6 +158,18 @@ async function generateLocations() {
   }
 }
 
+/**
+ * Build and render the book's table of contents (TOC) into the UI.
+ *
+ * If a book is loaded, asynchronously reads the book's navigation TOC, clears the
+ * existing TOC container, and creates a clickable entry for each TOC item.
+ * Clicking an entry displays that location in the rendition and closes the TOC overlay.
+ *
+ * Does nothing if no book is loaded. Errors encountered while retrieving or
+ * rendering the TOC are caught and logged to the console.
+ *
+ * @returns {Promise<void>} Resolves when the TOC has been generated and appended to the DOM.
+ */
 async function generateToc() {
   if (!book) return;
   try {
@@ -140,14 +190,35 @@ async function generateToc() {
   }
 }
 
+/**
+ * Navigate the viewer to the previous page.
+ *
+ * If a rendition is active, calls its `prev()` method; otherwise does nothing.
+ */
 export function prevPage() {
   if (rendition) rendition.prev();
 }
 
+/**
+ * Advance the current rendition to the next page/location.
+ *
+ * This is a no-op if no rendition is initialized.
+ */
 export function nextPage() {
   if (rendition) rendition.next();
 }
 
+/**
+ * Navigate the viewer to the page number entered in the page input field.
+ *
+ * Reads a 1-based page number from `currentPageInput.value`, converts it to a
+ * 0-based location index, validates it against the book's generated locations,
+ * converts that location index to a CFI using `book.locations.cfiFromLocation`,
+ * and displays it in the rendition.
+ *
+ * No action is taken if there is no loaded book or location data, or if the
+ * entered page number is out of range or not a valid integer.
+ */
 export function goToPage() {
   if (!book || !locations) return;
   const pageNumber = parseInt(currentPageInput.value, 10) - 1;
@@ -157,17 +228,31 @@ export function goToPage() {
   }
 }
 
+/**
+ * Handle keyboard navigation: left/right arrow keys move to the previous/next page.
+ * @param {KeyboardEvent} e - Keyboard event; listens for 'ArrowLeft' to go to the previous page and 'ArrowRight' to go to the next page.
+ */
 function handleKeyEvents(e) {
   if (!book || !rendition) return;
   if (e.key === 'ArrowLeft') prevPage();
   if (e.key === 'ArrowRight') nextPage();
 }
 
+/**
+ * Toggle the visibility of the table of contents overlay.
+ *
+ * Adds or removes the 'open' class on the TOC container and the overlay element to show or hide the table of contents.
+ */
 export function toggleToc() {
   tocContainer.classList.toggle('open');
   overlay.classList.toggle('open');
 }
 
+/**
+ * Close the table of contents overlay.
+ *
+ * Removes the 'open' class from the TOC container and the page overlay, hiding the table of contents.
+ */
 export function closeToc() {
   tocContainer.classList.remove('open');
   overlay.classList.remove('open');
