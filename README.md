@@ -4,4 +4,4 @@ A quick HTML-based ePub Reader that works offline once you load the page online 
 This is a single .html file ebook reader. Download the standalone file in the Releases tab.
 A lot of stuff is questionably coded and this is only for ePub books.
 
-Also, you can check it out at https://nellowtcs.github.io/HTMLReader/ if you don't want to run it from the HTML.
+Also, you can check it out at https://htmltoolkit.github.io/HTMLReader/ if you don't want to run it from the HTML.
