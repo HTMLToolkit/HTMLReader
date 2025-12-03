@@ -18,7 +18,7 @@ export default defineConfig({
         theme_color: '#2196F3',
       },
       pwaAssets: {
-        image: 'public/source.svg', // source image → generates all required icons
+        image: 'public/source.svg',
         preset: 'minimal-2023',
         includeHtmlHeadLinks: true,
       },
