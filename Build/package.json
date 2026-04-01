@@ -27,7 +27,7 @@
   },
   "homepage": "https://github.com/HTMLToolkit/HTMLReader#readme",
   "dependencies": {
-    "epubjs": "^0.3.93",
+    "epubjs": "^0.4.2",
     "vite": "^7.1.11"
   },
   "devDependencies": {
